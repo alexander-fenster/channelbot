@@ -17,7 +17,6 @@ import * as tt from 'telegraf/typings/telegram-types';
 import {Config} from './config';
 
 const postCommand = 'post';
-const adminTimeoutMinutes = 1;
 
 function info(user: tt.User) {
   const segments = [user.id.toString()];
@@ -74,7 +73,7 @@ export class Telegram {
       ctx.reply(
         'Добрый день! Для создания поста в канале вам понадобятся права администратора. ' +
           `Напишите мне /${postCommand}, чтобы получить права администратора канала ` +
-          `на ${adminTimeoutMinutes} мин.`
+          `на ${this.config.adminTimeoutMinutes} мин.`
       );
     } catch (err) {
       log(`error trying to process /start from ${info(user)}: ${err}`);
@@ -118,7 +117,7 @@ export class Telegram {
       }
       const timeout = setTimeout(() => {
         this.demoteAdmin(user.id, info(user));
-      }, adminTimeoutMinutes * 60 * 1000);
+      }, this.config.adminTimeoutMinutes * 60 * 1000);
       this.admins.set(user.id, timeout);
 
       // 2. Allow posting messages
@@ -135,7 +134,7 @@ export class Telegram {
       });
 
       ctx.reply(
-        `Вы можете писать в канал в течение ${adminTimeoutMinutes} мин.`
+        `Вы можете писать в канал в течение ${this.config.adminTimeoutMinutes} мин.`
       );
     } catch (err) {
       log(`error trying to process /${postCommand} from ${info(user)}: ${err}`);

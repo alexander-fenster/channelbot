@@ -23,6 +23,7 @@ export interface Config {
   telegramToken: string;
   channelId: number;
   admins: number[];
+  adminTimeoutMinutes: number;
 }
 
 export async function getConfig(): Promise<Config> {

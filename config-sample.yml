@@ -4,3 +4,4 @@ channelId: -10012345 # https://gist.github.com/mraaroncruz/e76d19f7d61d59419002d
 admins:
   - 67890  # put admins' IDs here
   - 12300
+adminTimeoutMinutes: 15
