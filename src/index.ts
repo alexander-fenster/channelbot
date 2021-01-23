@@ -19,7 +19,7 @@ import {getConfig} from './config';
 async function main() {
   const config = await getConfig();
   const bot = new telegram.Telegram(config);
-  bot.start();
+  await bot.start();
   process.once('SIGTERM', () => {
     bot.stop();
     process.exit();
