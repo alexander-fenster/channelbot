@@ -24,6 +24,7 @@ export interface Config {
   channelId: number;
   admins: number[];
   adminTimeoutMinutes: number;
+  messageDatabase: string;
 }
 
 export async function getConfig(): Promise<Config> {

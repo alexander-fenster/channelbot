@@ -15,6 +15,12 @@
 import {Telegraf, Context, Markup} from 'telegraf';
 import * as tt from 'telegraf/typings/telegram-types';
 import {Config} from './config';
+import {
+  editFormattedMessage,
+  formatMessage,
+  sendFormattedMessage,
+} from './format';
+import {MessageDatabase} from './messagedb';
 
 const postCommand = 'post';
 
@@ -41,11 +47,13 @@ export class Telegram {
   private config: Config;
   private admins: Map<number, NodeJS.Timeout>;
   private pendingMessageContexts: Map<number, Context>;
+  private messageDatabase: MessageDatabase;
 
   constructor(config: Config) {
     this.admins = new Map<number, NodeJS.Timeout>();
     this.pendingMessageContexts = new Map<number, Context>();
     this.config = config;
+    this.messageDatabase = new MessageDatabase(this.config);
     this.bot = new Telegraf(config.telegramToken);
     this.bot.start((ctx: Context) => {
       this.handleStart(ctx);
@@ -55,6 +63,9 @@ export class Telegram {
     });
     this.bot.on('message', (ctx: Context) => {
       this.handleMessage(ctx);
+    });
+    this.bot.on('edited_message', (ctx: Context) => {
+      this.handleEditedMessage(ctx);
     });
     this.bot.action('send', (ctx: Context) => {
       this.forwardMessage(ctx);
@@ -98,6 +109,10 @@ export class Telegram {
     if (!user) {
       return;
     }
+    const message = ctx.message;
+    if (!message) {
+      return;
+    }
     try {
       log(`message received from ${info(user)}, asking to confirm`);
       this.pendingMessageContexts.set(user.id, ctx);
@@ -113,12 +128,50 @@ export class Telegram {
     }
   }
 
+  private async handleEditedMessage(ctx: Context) {
+    const user = ctx.from;
+    if (!user) {
+      return;
+    }
+    const message = ctx.editedMessage;
+    if (!message) {
+      return;
+    }
+    try {
+      const channelMessageId = await this.messageDatabase.getChannelMessageId(
+        message.chat.id,
+        message.message_id
+      );
+      if (!channelMessageId) {
+        log(
+          `message edited by ${info(user)} is not found in channel, skipping`
+        );
+        return;
+      }
+      log(`message edited by ${info(user)} is found in channel, editing`);
+      const formattedMessage = formatMessage(user, message);
+      if (!formattedMessage) {
+        log(`cannot format edited message from ${info(user)}, skipping`);
+        return;
+      }
+      formattedMessage.message_id = channelMessageId;
+      editFormattedMessage(
+        this.bot.telegram,
+        this.config.channelId,
+        formattedMessage
+      );
+    } catch (err) {
+      log(`error trying to process message edit from ${info(user)}: ${err}`);
+    }
+  }
+
   private async forwardMessage(ctx: Context) {
     const user = ctx.from;
     if (!user) {
       return;
     }
     try {
+      await ctx.editMessageReplyMarkup(undefined);
       const messageContext = this.pendingMessageContexts.get(user.id);
       if (!messageContext) {
         log(`no message from ${info(user)} to send`);
@@ -127,9 +180,25 @@ export class Telegram {
         return;
       }
       this.pendingMessageContexts.delete(user.id);
-      log(`forwarding message from ${info(user)} to the channel`);
-      await messageContext.forwardMessage(this.config.channelId);
+      const formattedMessage = formatMessage(user, messageContext.message!);
+      if (!formattedMessage) {
+        log(`forwarding message from ${info(user)} to the channel`);
+        await messageContext.forwardMessage(this.config.channelId);
+      } else {
+        log(`posting message from ${info(user)} to the channel`);
+        const sentMessage = await sendFormattedMessage(
+          this.bot.telegram,
+          this.config.channelId,
+          formattedMessage
+        );
+        await this.messageDatabase.saveChannelMessageId(
+          formattedMessage.chat.id,
+          formattedMessage.message_id,
+          sentMessage.message_id
+        );
+      }
       await ctx.answerCbQuery('Сообщение отправлено.');
+      await ctx.deleteMessage();
     } catch (err) {
       log(`error trying to forward a message from ${info(user)}: ${err}`);
     }
@@ -141,9 +210,11 @@ export class Telegram {
       return;
     }
     try {
+      await ctx.editMessageReplyMarkup(undefined);
       this.pendingMessageContexts.delete(user.id);
       log(`canceling message from ${info(user)}`);
       await ctx.answerCbQuery('Сообщение отменено.');
+      await ctx.deleteMessage();
     } catch (err) {
       log(`error trying to cancel a message from ${info(user)}: ${err}`);
     }
