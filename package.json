@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "description": "Rodina MSFT bot",
   "main": "build/src/index.js",
+  "engines": {
+    "node": ">=12"
+  },
   "bin": {
     "bzozobot": "build/src/index.js"
   },

@@ -5,3 +5,4 @@ admins:
   - 67890  # put admins' IDs here
   - 12300
 adminTimeoutMinutes: 15
+messageDatabase: './messagedb'
