@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import {Telegraf} from 'telegraf';
 import {editedMessage, message} from 'telegraf/filters';
 import {OpenAI} from 'openai';
@@ -19,6 +21,11 @@ const ALLOWED_CHAT_IDS =
   process.env.ALLOWED_CHAT_IDS?.split(',').map(id => parseInt(id)) ?? [];
 if (ALLOWED_CHAT_IDS.length === 0) {
   throw new Error('ALLOWED_CHAT_IDS is not set');
+}
+
+const LOG_DIR = process.env.LOG_DIR ?? './logs';
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, {recursive: true});
 }
 
 interface ModerationRequest {
@@ -74,6 +81,23 @@ async function processModerationRequest(request: ModerationRequest) {
     input: request.text,
   });
   const moderationResult = moderationResponse.results[0];
+
+  const logFile = path.join(
+    LOG_DIR,
+    `${request.chatId}-${request.messageId}.json`,
+  );
+  await fs.promises.writeFile(
+    logFile,
+    JSON.stringify(
+      {
+        input: request.text,
+        response: moderationResponse,
+      },
+      null,
+      2,
+    ),
+  );
+
   if (!moderationResult.flagged) {
     return;
   }
