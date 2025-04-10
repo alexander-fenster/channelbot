@@ -84,7 +84,7 @@ async function processModerationRequest(request: ModerationRequest) {
 
   const logFile = path.join(
     LOG_DIR,
-    `${request.chatId}-${request.messageId}.json`,
+    `${request.chatId.toString().replace(/^-100/, '')}-${request.messageId}.json`,
   );
   await fs.promises.writeFile(
     logFile,
