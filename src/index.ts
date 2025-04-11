@@ -194,6 +194,13 @@ EXAMPLE JSON OUTPUT WHERE NO RULE WAS VIOLATED:
     await bot.telegram.setMessageReaction(request.chatId, request.messageId, [
       reaction,
     ]);
+    if (moderationResult.reason) {
+      await bot.telegram.sendMessage(request.chatId, moderationResult.reason, {
+        reply_parameters: {
+          message_id: request.messageId,
+        },
+      });
+    }
   }
 }
 
