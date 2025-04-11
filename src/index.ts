@@ -26,6 +26,12 @@ if (ALLOWED_CHAT_IDS.length === 0) {
   throw new Error('ALLOWED_CHAT_IDS is not set');
 }
 
+const ALLOWED_TOPIC_IDS =
+  process.env.ALLOWED_TOPIC_IDS?.split(',').map(id => parseInt(id)) ?? [];
+if (ALLOWED_TOPIC_IDS.length === 0) {
+  throw new Error('ALLOWED_TOPIC_IDS is not set');
+}
+
 const LOG_DIR = process.env.LOG_DIR ?? './logs';
 if (!fs.existsSync(LOG_DIR)) {
   fs.mkdirSync(LOG_DIR, {recursive: true});
@@ -45,6 +51,7 @@ const deepseek = new OpenAI({
 interface ModerationRequest {
   text: string;
   chatId: number;
+  topicId: number | null;
   messageId: number;
 }
 
@@ -54,6 +61,9 @@ let timeout: NodeJS.Timeout | null = null;
 
 function enqueueForModeration(request: ModerationRequest) {
   if (!ALLOWED_CHAT_IDS.includes(request.chatId)) {
+    return;
+  }
+  if (request.topicId && !ALLOWED_TOPIC_IDS.includes(request.topicId)) {
     return;
   }
   moderationQueue.push(request);
@@ -162,7 +172,7 @@ EXAMPLE JSON OUTPUT WHERE NO RULE WAS VIOLATED:
     logFile,
     JSON.stringify(
       {
-        input: request.text,
+        request,
         result: moderationResult,
       },
       null,
@@ -218,6 +228,14 @@ EXAMPLE JSON OUTPUT WHERE NO RULE WAS VIOLATED:
 bot.on(message('text'), async ctx => {
   const message = ctx.message;
   const text = message.text;
+  let topicId: number | null = null;
+  if (
+    'message_thread_id' in message &&
+    message.message_thread_id &&
+    message.is_topic_message
+  ) {
+    topicId = message.message_thread_id;
+  }
   // remove @usernames and links
   const cleanedText = text
     .replace(/@[^\s]+/g, '')
@@ -226,12 +244,21 @@ bot.on(message('text'), async ctx => {
     text: cleanedText,
     chatId: message.chat.id,
     messageId: message.message_id,
+    topicId,
   });
 });
 
 bot.on(editedMessage('text'), async ctx => {
   const message = ctx.editedMessage;
   const text = message.text;
+  let topicId: number | null = null;
+  if (
+    'message_thread_id' in message &&
+    message.message_thread_id &&
+    message.is_topic_message
+  ) {
+    topicId = message.message_thread_id;
+  }
   const cleanedText = text
     .replace(/@[^\s]+/g, '')
     .replace(/https?:\/\/[^\s]+/g, '');
@@ -239,6 +266,7 @@ bot.on(editedMessage('text'), async ctx => {
     text: cleanedText,
     chatId: message.chat.id,
     messageId: message.message_id,
+    topicId,
   });
 });
 
