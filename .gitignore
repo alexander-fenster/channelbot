@@ -7,3 +7,4 @@ package-lock.json
 __pycache__
 env.sh
 logs/
+rules.txt

@@ -3,18 +3,21 @@ import * as path from 'path';
 import {Telegraf} from 'telegraf';
 import {editedMessage, message} from 'telegraf/filters';
 import {OpenAI} from 'openai';
-import {ReactionType} from 'telegraf/typings/core/types/typegram';
+import {
+  ReactionType,
+  TelegramEmoji,
+} from 'telegraf/typings/core/types/typegram';
 
-const moderationThrottlingSeconds = 20;
+const moderationThrottlingSeconds = 1;
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 if (!TELEGRAM_BOT_TOKEN) {
   throw new Error('TELEGRAM_BOT_TOKEN is not set');
 }
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-if (!OPENAI_API_KEY) {
-  throw new Error('OPENAI_API_KEY is not set');
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+if (!DEEPSEEK_API_KEY) {
+  throw new Error('DEEPSEEK_API_KEY is not set');
 }
 
 const ALLOWED_CHAT_IDS =
@@ -27,6 +30,17 @@ const LOG_DIR = process.env.LOG_DIR ?? './logs';
 if (!fs.existsSync(LOG_DIR)) {
   fs.mkdirSync(LOG_DIR, {recursive: true});
 }
+
+const RULES = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'rules.txt'),
+  'utf8',
+);
+
+const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
+const deepseek = new OpenAI({
+  apiKey: DEEPSEEK_API_KEY,
+  baseURL: 'https://api.deepseek.com',
+});
 
 interface ModerationRequest {
   text: string;
@@ -75,12 +89,63 @@ function processModerationQueue() {
   }
 }
 
+interface ModerationResult {
+  flagged: boolean;
+  rule: number | null;
+  reason: string | null;
+  error: string | null;
+}
+
 async function processModerationRequest(request: ModerationRequest) {
-  const moderationResponse = await openai.moderations.create({
-    model: 'omni-moderation-latest',
-    input: request.text,
+  const systemPrompt = `You are a helpful assistant that moderates messages for a chat where people primarily speak Russian.
+  You will be given a message and you need to determine if it violates the rules of the chat provided below:
+
+${RULES}
+
+Respond with a JSON object with the following fields:
+    flagged: true or false
+    rule: rule number that was violated, 1 to 7, or null if no rule was violated
+    reason: single sentence explanation in English of why the rule was or was not violated
+
+EXAMPLE JSON OUTPUT:
+{
+  "flagged": true,
+  "rule": 2,
+  "reason": "The message contains a personal attack."
+}
+
+EXAMPLE JSON OUTPUT WHERE NO RULE WAS VIOLATED:
+{
+  "flagged": false,
+  "rule": null,
+  "reason": "The message is polite and does not contain any insults or threats."
+}
+  `;
+  const moderationResponse = await deepseek.chat.completions.create({
+    model: 'deepseek-chat',
+    messages: [
+      {role: 'system', content: systemPrompt},
+      {role: 'user', content: request.text},
+    ],
+    response_format: {type: 'json_object'},
   });
-  const moderationResult = moderationResponse.results[0];
+
+  let moderationResult: ModerationResult | null = null;
+
+  const moderationResultJson = moderationResponse.choices[0].message.content;
+  try {
+    moderationResult = JSON.parse(moderationResultJson || '');
+    if (!moderationResult) {
+      throw new Error('Invalid JSON');
+    }
+  } catch (err) {
+    moderationResult = {
+      flagged: false,
+      rule: null,
+      reason: null,
+      error: `${err}`,
+    };
+  }
 
   const logFile = path.join(
     LOG_DIR,
@@ -91,50 +156,34 @@ async function processModerationRequest(request: ModerationRequest) {
     JSON.stringify(
       {
         input: request.text,
-        response: moderationResponse,
+        result: moderationResult,
       },
       null,
       2,
-    ),
+    ) + '\n',
   );
 
   if (!moderationResult.flagged) {
     return;
   }
-  const scores = moderationResult.category_scores;
-  let maxCategory: string | null = null;
-  let maxScore: number | null = null;
-  for (const [category, score] of Object.entries(scores)) {
-    if (score > (maxScore ?? 0)) {
-      maxCategory = category;
-      maxScore = score;
-    }
-  }
-  let emojiReaction: '😡' | '🤬' | '😱' | '😨' | '🤔' | null = null;
-  switch (maxCategory) {
-    case 'sexual':
-    case 'sexual/minors':
-      emojiReaction = '😡';
+
+  let emojiReaction: TelegramEmoji | null = null;
+  // possible emojis: "👍", "👎", "❤", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "🤬", "😢", "🎉", "🤩", "🤮", "💩", "🙏", "👌", "🕊", "🤡", "🥱", "🥴", "😍", "🐳", "❤‍🔥", "🌚", "🌭", "💯", "🤣", "⚡", "🍌", "🏆", "💔", "🤨", "😐", "🍓", "🍾", "💋", "🖕", "😈", "😴", "😭", "🤓", "👻", "👨‍💻", "👀", "🎃", "🙈", "😇", "😨", "🤝", "✍", "🤗", "🫡", "🎅", "🎄", "☃", "💅", "🤪", "🗿", "🆒", "💘", "🙉", "🦄", "😘", "💊", "🙊", "😎", "👾", "🤷‍♂", "🤷", "🤷‍♀", "😡"
+  switch (moderationResult.rule) {
+    case 1 /* communication style */:
+      emojiReaction = '🤨';
       break;
-    case 'harassment':
-    case 'harassment/threatening':
-    case 'hate':
-    case 'hate/threatening':
+    case 2 /* no insults, threats, hate */:
       emojiReaction = '🤬';
       break;
-    case 'illicit':
-    case 'illicit/violent':
-    case 'violence':
-    case 'violence/graphic':
-      emojiReaction = '😱';
+    case 3 /* no personal attacks */:
+      emojiReaction = '😡';
       break;
-    case 'self-harm':
-    case 'self-harm/intent':
-    case 'self-harm/instructions':
-      emojiReaction = '😨';
+    case 6 /* no swearing towards other users */:
+      emojiReaction = '👎';
       break;
     default:
-      emojiReaction = '🤔';
+      emojiReaction = '😱';
       break;
   }
   if (emojiReaction) {
@@ -147,9 +196,6 @@ async function processModerationRequest(request: ModerationRequest) {
     ]);
   }
 }
-
-const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
-const openai = new OpenAI({apiKey: OPENAI_API_KEY});
 
 bot.on(message('text'), async ctx => {
   const message = ctx.message;
