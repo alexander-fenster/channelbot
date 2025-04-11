@@ -195,11 +195,15 @@ EXAMPLE JSON OUTPUT WHERE NO RULE WAS VIOLATED:
       reaction,
     ]);
     if (moderationResult.reason) {
-      await bot.telegram.sendMessage(request.chatId, moderationResult.reason, {
-        reply_parameters: {
-          message_id: request.messageId,
+      await bot.telegram.sendMessage(
+        request.chatId,
+        `Rule ${moderationResult.rule} violated: ${moderationResult.reason}`,
+        {
+          reply_parameters: {
+            message_id: request.messageId,
+          },
         },
-      });
+      );
     }
   }
 }
