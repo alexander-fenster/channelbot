@@ -9,6 +9,7 @@ import {
 } from 'telegraf/typings/core/types/typegram';
 
 const moderationThrottlingSeconds = 1;
+const severityThreshold = 7;
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 if (!TELEGRAM_BOT_TOKEN) {
@@ -192,7 +193,7 @@ interface ModerationResult {
 
   for (const evaluation of moderationResult.evaluation) {
     if (
-      evaluation.severity >= 5 &&
+      evaluation.severity >= severityThreshold &&
       (severity === null || evaluation.severity > severity)
     ) {
       flagged = true;
