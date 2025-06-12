@@ -10,7 +10,7 @@ import {
 } from 'telegraf/typings/core/types/typegram';
 
 const moderationThrottlingSeconds = 1;
-const severityThreshold = 7;
+const severityThreshold = 9;
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 if (!TELEGRAM_BOT_TOKEN) {
