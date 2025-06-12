@@ -245,7 +245,7 @@ interface ModerationResult {
       );
     }
 
-    if (request.topicId && !TOPIC_IDS_TO_REPLY_IN.includes(request.topicId)) {
+    if (!request.topicId || (request.topicId && !TOPIC_IDS_TO_REPLY_IN.includes(request.topicId))) {
       return;
     }
 
