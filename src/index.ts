@@ -237,15 +237,19 @@ interface ModerationResult {
   if (emojiReaction) {
     for (const adminUserId of ADMIN_USER_IDS) {
       // for topic message: https://t.me/c/1429106000/2071/34667
-      // for non-topic message: https://t.me/c/1429106000/1/34063
-      const messageUrl = `https://t.me/c/${request.chatId.toString().replace(/^-100/, '')}/${request.topicId?.toString() ?? '1'}/${request.messageId}`;
+      // for non-topic message: https://t.me/c/1429106000/34063
+      const topicPart = request.topicId ? `/${request.topicId.toString()}` : '';
+      const messageUrl = `https://t.me/c/${request.chatId.toString().replace(/^-100/, '')}${topicPart}/${request.messageId}`;
       await bot.telegram.sendMessage(
         adminUserId,
         `${messageUrl}\nRule ${rule} violated: ${reason}`,
       );
     }
 
-    if (!request.topicId || (request.topicId && !TOPIC_IDS_TO_REPLY_IN.includes(request.topicId))) {
+    if (
+      !request.topicId ||
+      (request.topicId && !TOPIC_IDS_TO_REPLY_IN.includes(request.topicId))
+    ) {
       return;
     }
 
