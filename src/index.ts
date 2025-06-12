@@ -242,6 +242,11 @@ interface ModerationResult {
       await bot.telegram.sendMessage(
         adminUserId,
         `${messageUrl}\nRule ${rule} violated: ${reason}`,
+        {
+          reply_markup: {
+            remove_keyboard: true,
+          },
+        },
       );
     }
 
