@@ -19,7 +19,7 @@ const server = http.createServer(async (req, res) => {
       await fs.promises.readFile(path.join('logs', file))
     ).toString();
     const json = JSON.parse(content);
-    delete json.fromUser;
+    delete json.request.fromUser;
     response += JSON.stringify(json, null, 2) + '\n';
   }
 
