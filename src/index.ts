@@ -188,7 +188,6 @@ interface ModerationResult {
       {
         request,
         result: moderationResult,
-        fromUser: request.fromUser,
       },
       null,
       2,
