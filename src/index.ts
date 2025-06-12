@@ -6,6 +6,7 @@ import {OpenAI} from 'openai';
 import {
   ReactionType,
   TelegramEmoji,
+  User,
 } from 'telegraf/typings/core/types/typegram';
 
 const moderationThrottlingSeconds = 1;
@@ -27,10 +28,16 @@ if (ALLOWED_CHAT_IDS.length === 0) {
   throw new Error('ALLOWED_CHAT_IDS is not set');
 }
 
-const ALLOWED_TOPIC_IDS =
-  process.env.ALLOWED_TOPIC_IDS?.split(',').map(id => parseInt(id)) ?? [];
-if (ALLOWED_TOPIC_IDS.length === 0) {
-  throw new Error('ALLOWED_TOPIC_IDS is not set');
+const TOPIC_IDS_TO_REPLY_IN =
+  process.env.TOPIC_IDS_TO_REPLY_IN?.split(',').map(id => parseInt(id)) ?? [];
+if (TOPIC_IDS_TO_REPLY_IN.length === 0) {
+  throw new Error('TOPIC_IDS_TO_REPLY_IN is not set');
+}
+
+const ADMIN_USER_IDS =
+  process.env.ADMIN_USER_IDS?.split(',').map(id => parseInt(id)) ?? [];
+if (ADMIN_USER_IDS.length === 0) {
+  throw new Error('ADMIN_USER_IDS is not set');
 }
 
 const LOG_DIR = process.env.LOG_DIR ?? './logs';
@@ -49,6 +56,7 @@ interface ModerationRequest {
   chatId: number;
   topicId: number | null;
   messageId: number;
+  fromUser: User;
 }
 
 const moderationQueue: ModerationRequest[] = [];
@@ -57,9 +65,6 @@ let timeout: NodeJS.Timeout | null = null;
 
 function enqueueForModeration(request: ModerationRequest) {
   if (!ALLOWED_CHAT_IDS.includes(request.chatId)) {
-    return;
-  }
-  if (request.topicId && !ALLOWED_TOPIC_IDS.includes(request.topicId)) {
     return;
   }
   moderationQueue.push(request);
@@ -183,6 +188,7 @@ interface ModerationResult {
       {
         request,
         result: moderationResult,
+        fromUser: request.fromUser,
       },
       null,
       2,
@@ -229,6 +235,20 @@ interface ModerationResult {
       emojiReaction = '😱';
   }
   if (emojiReaction) {
+    for (const adminUserId of ADMIN_USER_IDS) {
+      // for topic message: https://t.me/c/1429106000/2071/34667
+      // for non-topic message: https://t.me/c/1429106000/1/34063
+      const messageUrl = `https://t.me/c/${request.chatId.toString().replace(/^-100/, '')}/${request.topicId?.toString() ?? '1'}/${request.messageId}`;
+      await bot.telegram.sendMessage(
+        adminUserId,
+        `${messageUrl}\nRule ${rule} violated: ${reason}`,
+      );
+    }
+
+    if (request.topicId && !TOPIC_IDS_TO_REPLY_IN.includes(request.topicId)) {
+      return;
+    }
+
     const reaction: ReactionType = {
       type: 'emoji',
       emoji: emojiReaction,
@@ -273,6 +293,7 @@ bot.on(message('text'), async ctx => {
     chatId: message.chat.id,
     messageId: message.message_id,
     topicId,
+    fromUser: message.from,
   });
 });
 
@@ -295,6 +316,7 @@ bot.on(editedMessage('text'), async ctx => {
     chatId: message.chat.id,
     messageId: message.message_id,
     topicId,
+    fromUser: message.from,
   });
 });
 

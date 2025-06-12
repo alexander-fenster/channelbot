@@ -15,8 +15,12 @@ const server = http.createServer(async (req, res) => {
 
   let response = '';
   for (const file of files10) {
-    response +=
-      (await fs.promises.readFile(path.join('logs', file))).toString() + '\n';
+    const content = (
+      await fs.promises.readFile(path.join('logs', file))
+    ).toString();
+    const json = JSON.parse(content);
+    delete json.fromUser;
+    response += JSON.stringify(json, null, 2) + '\n';
   }
 
   res.end(response);
