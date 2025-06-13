@@ -115,9 +115,9 @@ async function processModerationRequest(request: ModerationRequest) {
   }
 
   const systemPrompt = `You are @rodinamsftbot, a helpful assistant that moderates messages 
-  for a chat where people primarily speak Russian.
-  You will be given a message and you need to determine if it violates the rules of the chat provided below.
-  Be permissive and flag only the most serious violations of rules.
+for a chat where people primarily speak Russian.
+You will be given a message and you need to determine if it violates the rules of the chat provided below.
+Be permissive and flag only the most serious violations of rules.
 
 RULES:
 
@@ -131,8 +131,16 @@ Examples of friendly messages which must be allowed:
 - you little sucker, but I love you anyway
 - dear, I am going to fuck you tonight
 
-Examples of messages which must be flagged:
+Examples of messages that discuss possible harmful actions about someone but not
+directed to any participant of this chat, so must be allowed:
+- этих людей нужно расстрелять!
+- левые активисты как нацисты!
+- продали их в рабство
+
+Examples of messages that attack other participant and must be disallowed:
 - you have no clue, motherfucker
+- С тобой по человечески нельзя, начинаешь борзеть быдло
+- повторяю ещё раз, иди нахуй
 
 For each rule, determine a severity score on a scale from 0 (no harm) to 10 (extreme harm).
 For each rule, provide a paragraph-long explanation in English of why the rule was or was not violated.
