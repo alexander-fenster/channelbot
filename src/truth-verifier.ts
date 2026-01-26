@@ -7,6 +7,7 @@ const execFileAsync = promisify(execFile);
 
 const TRUMP_JSON_PATH = '/tmp/trump/trump.json';
 const SIMILARITY_THRESHOLD = 0.7;
+const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 
 interface TruthPost {
   id: string;
@@ -171,12 +172,17 @@ export class TruthVerifier {
   private posts: TruthPost[] = [];
   private indexedPosts: IndexedPost[] = [];
   private wordIndex: Map<string, number[]> = new Map();
-  private loaded = false;
+  private loadedAt = 0;
+
+  isStale(): boolean {
+    return Date.now() - this.loadedAt > STALE_THRESHOLD_MS;
+  }
 
   async load(): Promise<void> {
-    if (this.loaded) {
-      return;
-    }
+    // Reset index
+    this.posts = [];
+    this.indexedPosts = [];
+    this.wordIndex = new Map();
 
     const content = await fs.promises.readFile(TRUMP_JSON_PATH, 'utf-8');
     this.posts = JSON.parse(content) as TruthPost[];
@@ -202,7 +208,7 @@ export class TruthVerifier {
       }
     }
 
-    this.loaded = true;
+    this.loadedAt = Date.now();
     console.log(
       `TruthVerifier loaded ${this.posts.length} posts, ${this.wordIndex.size} unique words indexed`,
     );
@@ -271,7 +277,7 @@ export class TruthVerifier {
    * Find the best matching post for the given OCR text
    */
   findMatch(ocrText: string): VerificationResult {
-    if (!this.loaded) {
+    if (this.loadedAt === 0) {
       throw new Error('TruthVerifier not loaded. Call load() first.');
     }
 
@@ -368,6 +374,9 @@ let verifierInstance: TruthVerifier | null = null;
 export async function getTruthVerifier(): Promise<TruthVerifier> {
   if (!verifierInstance) {
     verifierInstance = new TruthVerifier();
+    await verifierInstance.load();
+  } else if (verifierInstance.isStale()) {
+    console.log('TruthVerifier is stale, reloading...');
     await verifierInstance.load();
   }
   return verifierInstance;
