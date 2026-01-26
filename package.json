@@ -13,23 +13,26 @@
   "license": "Apache-2.0",
   "keywords": [],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "mocha --require ts-node/register 'test/**/*.test.ts'",
     "lint": "gts lint",
     "clean": "gts clean",
     "compile": "tsc",
     "fix": "gts fix",
     "prepare": "npm run compile",
-    "pretest": "npm run compile",
-    "posttest": "npm run lint",
     "start": "node build/src/index.js"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^22.7.5",
     "gts": "^6.0.2",
+    "mocha": "^11.7.5",
+    "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
   },
   "dependencies": {
+    "@types/string-similarity": "^4.0.2",
     "openai": "^4.93.0",
+    "string-similarity": "^4.0.4",
     "telegraf": "^4.16.3"
   }
 }

@@ -11,8 +11,8 @@ Channel-Moderator-Bot is a Telegram bot that automatically moderates messages in
 ```bash
 npm run compile   # Build TypeScript to build/
 npm start         # Run compiled bot (build/src/index.js)
-npm run lint      # Run ESLint (gts)
-npm run fix       # Auto-fix linting/formatting issues
+npx gts check     # Lint check (preferred over npm run lint)
+npx gts fix       # Auto-fix linting/formatting issues
 npm run clean     # Clean generated files
 ```
 
@@ -34,6 +34,10 @@ Note: `npm test` is a placeholder and not implemented.
    - Optionally replies with violation reason (only for specified topics)
 
 5. **Logging**: Every request logged as JSON to `logs/{chatId}-{messageId}.json`
+
+6. **Truth Post Verification** (`src/truth-verifier.ts`): When photos are posted, runs Tesseract OCR. If text looks like a Trump Truth post (@realDonaldTrump or "Donald J. Trump"), fuzzy-matches against `/tmp/trump/trump.json` using two-phase matching:
+   - Phase 1: Inverted word index finds candidates sharing significant words
+   - Phase 2: Dice coefficient similarity scoring on candidates (threshold: 70%)
 
 **Additional files:**
 - `serve.js`: HTTP server (port 5001) serving last 10 moderation logs with sensitive data stripped
@@ -71,4 +75,4 @@ interface ModerationResult {
 
 ## Code Style
 
-Uses Google TypeScript Style (gts) with 2-space indentation. Run `npm run fix` before committing.
+Uses Google TypeScript Style (gts) with 2-space indentation. Run `npx gts fix` before committing.

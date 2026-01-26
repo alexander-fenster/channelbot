@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import {Telegraf} from 'telegraf';
 import {editedMessage, message} from 'telegraf/filters';
@@ -8,6 +9,12 @@ import {
   TelegramEmoji,
   User,
 } from 'telegraf/typings/core/types/typegram';
+import {
+  getTruthVerifier,
+  runOcr,
+  looksLikeTrumpPost,
+  downloadFile,
+} from './truth-verifier';
 
 const moderationThrottlingSeconds = 1;
 const severityThreshold = 9;
@@ -296,6 +303,7 @@ interface ModerationResult {
 bot.on(message('text'), async ctx => {
   const message = ctx.message;
   const text = message.text;
+  console.log('received message:', text);
   if (!text) {
     return;
   }
@@ -341,6 +349,93 @@ bot.on(editedMessage('text'), async ctx => {
     topicId,
     fromUser: message.from,
   });
+});
+
+bot.on(message('photo'), async ctx => {
+  const message = ctx.message;
+  const chatId = message.chat.id;
+  const messageId = message.message_id;
+
+  console.log(`[photo] Received photo in chat ${chatId}, message ${messageId}`);
+
+  if (!ALLOWED_CHAT_IDS.includes(chatId)) {
+    console.log(`[photo] Chat ${chatId} not in allowed list, skipping`);
+    return;
+  }
+
+  // Get the largest photo (last in array)
+  const photo = message.photo[message.photo.length - 1];
+  const fileId = photo.file_id;
+  console.log(
+    `[photo] Photo size: ${photo.width}x${photo.height}, fileId: ${fileId}`,
+  );
+
+  const fileLink = await ctx.telegram.getFileLink(fileId);
+  const tempPath = path.join(os.tmpdir(), `truth-${fileId}.jpg`);
+  console.log(`[photo] File link: ${fileLink.href}`);
+  console.log(`[photo] Temp path: ${tempPath}`);
+
+  try {
+    console.log('[photo] Downloading file...');
+    await downloadFile(fileLink.href, tempPath);
+    console.log('[photo] Download complete');
+
+    // Run OCR
+    console.log('[photo] Running OCR...');
+    const ocrText = await runOcr(tempPath);
+    console.log(`[photo] OCR complete, text length: ${ocrText.length}`);
+    console.log(`[photo] OCR text preview: ${ocrText.substring(0, 200)}...`);
+
+    // Check if it looks like a Trump post
+    const isTrumpPost = looksLikeTrumpPost(ocrText);
+    console.log(`[photo] Looks like Trump post: ${isTrumpPost}`);
+    if (!isTrumpPost) {
+      console.log('[photo] Not a Trump post, skipping verification');
+      return;
+    }
+
+    // Verify against the JSON
+    console.log('[photo] Verifying against Trump posts JSON...');
+    const verifier = await getTruthVerifier();
+    const result = verifier.findMatch(ocrText);
+    console.log(
+      `[photo] Verification result: verified=${result.verified}, similarity=${result.similarity}`,
+    );
+    if (result.post) {
+      console.log(`[photo] Matched post ID: ${result.post.id}`);
+      console.log(
+        `[photo] Matched post content preview: ${result.post.content.substring(0, 100)}...`,
+      );
+    }
+
+    if (result.verified && result.post) {
+      console.log('[photo] Sending verified reply');
+      await ctx.reply(
+        `✅ Verified Trump Truth post (${Math.round(result.similarity * 100)}% match)\n${result.post.url}`,
+        {reply_parameters: {message_id: message.message_id}},
+      );
+    } else {
+      console.log('[photo] Sending unverified reply');
+      const similarityInfo =
+        result.similarity > 0
+          ? ` (best match: ${Math.round(result.similarity * 100)}%)`
+          : '';
+      await ctx.reply(
+        `⚠️ Could not verify this as a real Trump Truth post${similarityInfo}`,
+        {reply_parameters: {message_id: message.message_id}},
+      );
+    }
+    console.log(`[photo] Processing complete for message ${messageId}`);
+  } catch (err) {
+    console.error(
+      '[photo] Error processing photo for Truth verification:',
+      err,
+    );
+  } finally {
+    // Clean up temp file
+    console.log(`[photo] Cleaning up temp file: ${tempPath}`);
+    await fs.promises.unlink(tempPath).catch(() => {});
+  }
 });
 
 bot.launch().catch(err => {
