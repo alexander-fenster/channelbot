@@ -13,6 +13,7 @@
   "license": "Apache-2.0",
   "keywords": [],
   "scripts": {
+    "pretest": "mkdir -p /tmp/trump && cd /tmp/trump && curl https://ix.cnn.io/data/truth-social/truth_archive.json > tmp.json 2> /dev/null && mv tmp.json trump.json",
     "test": "mocha --require ts-node/register 'test/**/*.test.ts'",
     "lint": "gts lint",
     "clean": "gts clean",

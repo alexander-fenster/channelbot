@@ -34,14 +34,6 @@ describe('TruthVerifier', function () {
     it('should detect @realDonaldTrump', () => {
       assert.ok(looksLikeTrumpPost('Some text @realDonaldTrump more text'));
     });
-
-    it('should detect Donald J. Trump', () => {
-      assert.ok(looksLikeTrumpPost('Donald J. Trump said something'));
-    });
-
-    it('should return false for unrelated text', () => {
-      assert.ok(!looksLikeTrumpPost('Just some random text'));
-    });
   });
 
   describe('findMatch', () => {

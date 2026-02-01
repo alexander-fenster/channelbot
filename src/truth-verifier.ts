@@ -6,7 +6,7 @@ import * as stringSimilarity from 'string-similarity';
 const execFileAsync = promisify(execFile);
 
 const TRUMP_JSON_PATH = '/tmp/trump/trump.json';
-const SIMILARITY_THRESHOLD = 0.7;
+const SIMILARITY_THRESHOLD = 0.75;
 const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 
 interface TruthPost {
@@ -346,11 +346,7 @@ export async function runOcr(imagePath: string): Promise<string> {
  */
 export function looksLikeTrumpPost(text: string): boolean {
   const lowerText = text.toLowerCase();
-  return (
-    lowerText.includes('@realdonaldtrump') ||
-    lowerText.includes('donald j. trump') ||
-    lowerText.includes('donald j trump')
-  );
+  return lowerText.includes('@realdonaldtrump');
 }
 
 /**

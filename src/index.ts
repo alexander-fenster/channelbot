@@ -410,20 +410,14 @@ bot.on(message('photo'), async ctx => {
 
     if (result.verified && result.post) {
       console.log('[photo] Sending verified reply');
-      await ctx.reply(
-        `✅ Verified Trump Truth post (${Math.round(result.similarity * 100)}% match)\n${result.post.url}`,
-        {reply_parameters: {message_id: message.message_id}},
-      );
+      await ctx.reply(`✅ Verified Trump Truth post\n${result.post.url}`, {
+        reply_parameters: {message_id: message.message_id},
+      });
     } else {
       console.log('[photo] Sending unverified reply');
-      const similarityInfo =
-        result.similarity > 0
-          ? ` (best match: ${Math.round(result.similarity * 100)}%)`
-          : '';
-      await ctx.reply(
-        `⚠️ Could not verify this as a real Trump Truth post${similarityInfo}`,
-        {reply_parameters: {message_id: message.message_id}},
-      );
+      await ctx.reply('⚠️ Could not verify this as a real Trump Truth post', {
+        reply_parameters: {message_id: message.message_id},
+      });
     }
     console.log(`[photo] Processing complete for message ${messageId}`);
   } catch (err) {
