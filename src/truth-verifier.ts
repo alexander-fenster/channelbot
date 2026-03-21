@@ -5,8 +5,8 @@ import * as stringSimilarity from 'string-similarity';
 
 const execFileAsync = promisify(execFile);
 
-const TRUMP_JSON_PATH = '/tmp/trump/trump.json';
-const SIMILARITY_THRESHOLD = 0.75;
+const DEFAULT_TRUMP_JSON_PATH = '/tmp/trump/trump.json';
+const SIMILARITY_THRESHOLD = 0.8;
 const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 
 interface TruthPost {
@@ -173,6 +173,11 @@ export class TruthVerifier {
   private indexedPosts: IndexedPost[] = [];
   private wordIndex: Map<string, number[]> = new Map();
   private loadedAt = 0;
+  private jsonPath: string;
+
+  constructor(jsonPath?: string) {
+    this.jsonPath = jsonPath ?? DEFAULT_TRUMP_JSON_PATH;
+  }
 
   isStale(): boolean {
     return Date.now() - this.loadedAt > STALE_THRESHOLD_MS;
@@ -184,7 +189,7 @@ export class TruthVerifier {
     this.indexedPosts = [];
     this.wordIndex = new Map();
 
-    const content = await fs.promises.readFile(TRUMP_JSON_PATH, 'utf-8');
+    const content = await fs.promises.readFile(this.jsonPath, 'utf-8');
     this.posts = JSON.parse(content) as TruthPost[];
 
     // Build index
@@ -211,6 +216,20 @@ export class TruthVerifier {
     this.loadedAt = Date.now();
     console.log(
       `TruthVerifier loaded ${this.posts.length} posts, ${this.wordIndex.size} unique words indexed`,
+    );
+  }
+
+  /**
+   * Strip Truth Social UI chrome from OCR text (header/footer noise)
+   */
+  stripOcrChrome(text: string): string {
+    return (
+      text
+        // Remove header: "Donald J. Trump ..." and "@realDonaldTrump"
+        .replace(/^[\s\S]*?@realDonaldTrump\s*/i, '')
+        // Remove footer: engagement stats and timestamp
+        .replace(/\d[\d.]*k?\s*ReTruths[\s\S]*/i, '')
+        .trim()
     );
   }
 
@@ -281,7 +300,8 @@ export class TruthVerifier {
       throw new Error('TruthVerifier not loaded. Call load() first.');
     }
 
-    const normalizedOcr = this.normalizeText(ocrText);
+    const cleanedOcr = this.stripOcrChrome(ocrText);
+    const normalizedOcr = this.normalizeText(cleanedOcr);
     const ocrWords = this.extractSignificantWords(normalizedOcr);
 
     if (ocrWords.size === 0) {

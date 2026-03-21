@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as path from 'path';
 import {TruthVerifier, runOcr, looksLikeTrumpPost} from '../src/truth-verifier';
 
-const FIXTURES_DIR = path.join(__dirname, 'fixtures');
+const FIXTURES_DIR = path.join(__dirname, '..', '..', 'test', 'fixtures');
 
 describe('TruthVerifier', function () {
   // OCR can be slow
@@ -12,7 +12,7 @@ describe('TruthVerifier', function () {
 
   before(async () => {
     // Load verifier with test fixtures
-    verifier = new TruthVerifier();
+    verifier = new TruthVerifier(path.join(FIXTURES_DIR, 'trump-posts.json'));
     await verifier.load();
   });
 
@@ -47,14 +47,37 @@ describe('TruthVerifier', function () {
       );
 
       const result = verifier.findMatch(ocrText);
+
       assert.ok(
         result.verified,
         `Should verify as real, got similarity: ${result.similarity}`,
       );
       assert.ok(result.post, 'Should have a matching post');
       assert.ok(
-        result.similarity >= 0.7,
-        `Similarity should be >= 0.7, got: ${result.similarity}`,
+        result.similarity >= 0.8,
+        `Similarity should be >= 0.8, got: ${result.similarity}`,
+      );
+    });
+
+    it('should verify small.jpg as a real Trump post', async () => {
+      const imagePath = path.join(FIXTURES_DIR, 'small.jpg');
+      const ocrText = await runOcr(imagePath);
+
+      assert.ok(
+        looksLikeTrumpPost(ocrText),
+        'OCR text should look like a Trump post',
+      );
+
+      const result = verifier.findMatch(ocrText);
+
+      assert.ok(
+        result.verified,
+        `Should verify as real, got similarity: ${result.similarity}`,
+      );
+      assert.ok(result.post, 'Should have a matching post');
+      assert.ok(
+        result.similarity >= 0.8,
+        `Similarity should be >= 0.8, got: ${result.similarity}`,
       );
     });
 
@@ -63,6 +86,7 @@ describe('TruthVerifier', function () {
       const ocrText = await runOcr(imagePath);
 
       const result = verifier.findMatch(ocrText);
+
       assert.ok(
         !result.verified,
         `Should NOT verify as real, got similarity: ${result.similarity}`,
