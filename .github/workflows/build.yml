@@ -15,6 +15,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
       - run: npm install
       - run: npx gts check
       - run: npm run compile
+      - run: npm test
