@@ -33,14 +33,18 @@ Note: `npm test` is a placeholder and not implemented.
    - Optionally adds emoji reaction (configurable by topic)
    - Optionally replies with violation reason (only for specified topics)
 
-5. **Logging**: Every request logged as JSON to `logs/{chatId}-{messageId}.json`
+5. **Logging**: Every request logged as JSON to `${LOG_DIR}/{chatId}-{messageId}.json`
 
 6. **Truth Post Verification** (`src/truth-verifier.ts`): When photos are posted, runs Tesseract OCR. If text looks like a Trump Truth post (@realDonaldTrump or "Donald J. Trump"), fuzzy-matches against `/tmp/trump/trump.json` using two-phase matching:
    - Phase 1: Inverted word index finds candidates sharing significant words
    - Phase 2: Dice coefficient similarity scoring on candidates (threshold: 70%)
 
-**Additional files:**
-- `serve.js`: HTTP server (port 5001) serving last 10 moderation logs with sensitive data stripped
+   The archive at `/tmp/trump/trump.json` is fetched in-process by `startTrumpArchiveFetcher()` every 5 minutes from `https://ix.cnn.io/data/truth-social/truth_archive.json`, with an inline `RT: <url>` spacing fixup, written via tmp-file + atomic rename. No external cronjob is required.
+
+7. **HTTP Server** (in `src/index.ts`): Listens on `PORT` (default 8080):
+   - `GET /healthz` → `200 ok` (for Decloud health checks)
+   - `GET /recent` → last 10 moderation log files (sorted by name) as concatenated pretty-printed JSON, with `request.fromUser` stripped per record
+   - Anything else → 404
 
 ## Environment Variables
 
@@ -50,7 +54,18 @@ Required (see `env.sh` template):
 - `ALLOWED_CHAT_IDS` - Comma-separated chat IDs to moderate
 - `TOPIC_IDS_TO_REPLY_IN` - Topic IDs where bot adds reactions/replies
 - `ADMIN_USER_IDS` - Admin user IDs to notify of violations
-- `LOG_DIR` - Log directory (defaults to `./logs`)
+
+Optional:
+- `LOG_DIR` - Log directory (defaults to `./logs`; production sets to `/data` so logs land in the mounted volume)
+- `PORT` - HTTP server port (defaults to `8080`)
+
+## Deployment
+
+Deployed to Decloud on `hosting.fenster.name` as `rodinamsftbot`, served at `rodinamsftbot.apps.fenster.name`.
+
+- **`Dockerfile`** — `node:24-alpine` + `tesseract-ocr` + `tesseract-ocr-data-eng`. `npm ci`'s `prepare` script compiles TypeScript automatically. The image needs `package-lock.json` (tracked in git).
+- **`deploy.sh`** — `git archive HEAD | ssh root@hosting.fenster.name` to `/root/staging/rodinamsftbot/deploy/`, then invokes the remote `deploy.sh`.
+- **Remote `/root/staging/rodinamsftbot/deploy.sh`** runs `decloud deploy service` with `--mount /root/data/rodinamsftbot:/data` so moderation logs survive container restarts. Production `env.sh` lives next to it (also remote, not in this repo).
 
 ## Key Data Structures
 
