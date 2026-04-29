@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import {Telegraf} from 'telegraf';
@@ -14,6 +15,7 @@ import {
   runOcr,
   looksLikeTrumpPost,
   downloadFile,
+  startTrumpArchiveFetcher,
 } from './truth-verifier';
 
 const moderationThrottlingSeconds = 1;
@@ -430,6 +432,51 @@ bot.on(message('photo'), async ctx => {
     console.log(`[photo] Cleaning up temp file: ${tempPath}`);
     await fs.promises.unlink(tempPath).catch(() => {});
   }
+});
+
+startTrumpArchiveFetcher();
+
+const PORT = parseInt(process.env.PORT ?? '8080');
+const httpServer = http.createServer(async (req, res) => {
+  if (req.url === '/healthz') {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.end('ok');
+    return;
+  }
+  if (req.url !== '/recent') {
+    res.statusCode = 404;
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.end('Not Found');
+    return;
+  }
+  try {
+    const files = (await fs.promises.readdir(LOG_DIR)).sort().slice(-10);
+    let body = '';
+    for (const file of files) {
+      const content = await fs.promises.readFile(
+        path.join(LOG_DIR, file),
+        'utf-8',
+      );
+      const json = JSON.parse(content);
+      delete json.request.fromUser;
+      body += JSON.stringify(json, null, 2) + '\n';
+    }
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.end(body);
+  } catch (err) {
+    console.error('[/recent] error:', err);
+    res.statusCode = 500;
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.end('Internal Server Error');
+  }
+});
+httpServer.on('error', err => {
+  console.error('[http] server error:', err);
+});
+httpServer.listen(PORT, () => {
+  console.log(`[http] listening on port ${PORT}`);
 });
 
 bot.launch().catch(err => {

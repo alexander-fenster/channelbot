@@ -1,11 +1,16 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import {execFile} from 'child_process';
 import {promisify} from 'util';
 import * as stringSimilarity from 'string-similarity';
 
 const execFileAsync = promisify(execFile);
 
-const DEFAULT_TRUMP_JSON_PATH = '/tmp/trump/trump.json';
+const TRUMP_DIR = '/tmp/trump';
+const DEFAULT_TRUMP_JSON_PATH = path.join(TRUMP_DIR, 'trump.json');
+const TRUMP_ARCHIVE_URL =
+  'https://ix.cnn.io/data/truth-social/truth_archive.json';
+const FETCH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const SIMILARITY_THRESHOLD = 0.8;
 const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -382,6 +387,43 @@ export async function downloadFile(
   }
   const buffer = Buffer.from(await response.arrayBuffer());
   await fs.promises.writeFile(destPath, buffer);
+}
+
+/**
+ * Fetch the Truth Social archive, apply the RT-URL spacing fixup, and write
+ * atomically to /tmp/trump/trump.json. Replicates the production cronjob.
+ */
+export async function fetchTrumpArchive(): Promise<void> {
+  await fs.promises.mkdir(TRUMP_DIR, {recursive: true});
+  const response = await fetch(TRUMP_ARCHIVE_URL);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch Trump archive: ${response.status} ${response.statusText}`,
+    );
+  }
+  const text = await response.text();
+  // Add a trailing space after `RT: <truthsocial-status-url>` when the URL
+  // isn't immediately followed by a closing quote, to keep the archive's
+  // inline RT references separable.
+  const fixed = text.replace(
+    /RT: https:\/\/truthsocial\.com\/users\/.*?\/statuses\/\d+(?!["\d])/g,
+    '$& ',
+  );
+  const tmpPath = path.join(TRUMP_DIR, 'tmp.json');
+  await fs.promises.writeFile(tmpPath, fixed);
+  await fs.promises.rename(tmpPath, DEFAULT_TRUMP_JSON_PATH);
+}
+
+export function startTrumpArchiveFetcher(): NodeJS.Timeout {
+  const tick = () => {
+    fetchTrumpArchive().catch(err => {
+      console.error('[trump-fetcher] fetch failed:', err);
+    });
+  };
+  tick();
+  const handle = setInterval(tick, FETCH_INTERVAL_MS);
+  handle.unref();
+  return handle;
 }
 
 // Singleton instance
