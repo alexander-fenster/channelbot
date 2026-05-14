@@ -374,7 +374,9 @@ bot.on(message('photo'), async ctx => {
 
   const fileLink = await ctx.telegram.getFileLink(fileId);
   const tempPath = path.join(os.tmpdir(), `truth-${fileId}.jpg`);
-  console.log(`[photo] File link: ${fileLink.href}`);
+  console.log(
+    `[photo] File path: ${fileLink.pathname.replace(/^\/file\/bot[^/]+/, '')}`,
+  );
   console.log(`[photo] Temp path: ${tempPath}`);
 
   try {
