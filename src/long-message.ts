@@ -1,7 +1,9 @@
 import {MessageEntity, User} from 'telegraf/typings/core/types/typegram';
 
-// A message is "long" when it spans more than this many lines.
+// A message is "long" when it spans more than this many lines...
 export const LONG_MESSAGE_LINE_THRESHOLD = 10;
+// ...or is longer than this many characters.
+export const LONG_MESSAGE_CHAR_THRESHOLD = 1000;
 
 // Minimal structural interface of the OpenAI client so tests can pass a fake.
 export interface TldrClient {
@@ -23,6 +25,9 @@ export interface RepostMessage {
 }
 
 export function isLongMessage(text: string): boolean {
+  if (text.length > LONG_MESSAGE_CHAR_THRESHOLD) {
+    return true;
+  }
   const newlines = text.match(/\n/g)?.length ?? 0;
   // N newlines means N+1 lines, so "longer than the threshold" needs at
   // least LONG_MESSAGE_LINE_THRESHOLD newlines.

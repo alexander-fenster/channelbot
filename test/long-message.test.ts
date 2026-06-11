@@ -40,6 +40,14 @@ describe('isLongMessage', () => {
     assert.strictEqual(isLongMessage('\n'.repeat(10)), true);
     assert.strictEqual(isLongMessage('\n'.repeat(9)), false);
   });
+
+  it('returns false for a single line of exactly 1000 characters', () => {
+    assert.strictEqual(isLongMessage('a'.repeat(1000)), false);
+  });
+
+  it('returns true for a single line longer than 1000 characters', () => {
+    assert.strictEqual(isLongMessage('a'.repeat(1001)), true);
+  });
 });
 
 describe('buildMention', () => {

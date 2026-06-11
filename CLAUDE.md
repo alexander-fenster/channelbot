@@ -35,7 +35,7 @@ Note: `npm test` is a placeholder and not implemented.
 
 5. **Logging**: Every request logged as JSON to `${LOG_DIR}/{chatId}-{messageId}.json`
 
-5a. **Long Message TL;DR** (`src/long-message.ts`): Messages longer than 10 lines (10+ `\n` characters) are summarized via DeepSeek into a one-sentence TL;DR, reposted to the same topic as "<user> posted a long message; TL;DR: <tldr>" with the original text in an `expandable_blockquote` entity (original entities shifted by the prefix length), and the original message is deleted. Requires `@telegraf/types` override in `package.json` (telegraf 4.16.3 pins 7.1.0 which predates the entity type) plus `skipLibCheck` in `tsconfig.json` (newer types break telegraf's own typings).
+5a. **Long Message TL;DR** (`src/long-message.ts`): Messages longer than 10 lines (10+ `\n` characters) or 1000 characters are summarized via DeepSeek into a one-sentence TL;DR, reposted to the same topic as "<user> posted a long message; TL;DR: <tldr>" with the original text in an `expandable_blockquote` entity (original entities shifted by the prefix length), and the original message is deleted. Requires `@telegraf/types` override in `package.json` (telegraf 4.16.3 pins 7.1.0 which predates the entity type) plus `skipLibCheck` in `tsconfig.json` (newer types break telegraf's own typings).
 
 6. **Truth Post Verification** (`src/truth-verifier.ts`): When photos are posted, runs Tesseract OCR. If text looks like a Trump Truth post (@realDonaldTrump or "Donald J. Trump"), fuzzy-matches against `/tmp/trump/trump.json` using two-phase matching:
    - Phase 1: Inverted word index finds candidates sharing significant words
