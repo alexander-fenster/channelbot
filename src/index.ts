@@ -19,12 +19,7 @@ import {
   startTrumpArchiveFetcher,
 } from './truth-verifier';
 import {ContextBuffer} from './context-buffer';
-import {
-  buildRepost,
-  formatUserName,
-  getTldr,
-  isLongMessage,
-} from './long-message';
+import {buildRepost, getTldr, isLongMessage} from './long-message';
 
 const moderationThrottlingSeconds = 1;
 const severityThreshold = 9;
@@ -374,7 +369,7 @@ async function handleLongMessage(params: {
 }) {
   const tldr = await getTldr(deepseek, params.text);
   const repost = buildRepost(
-    formatUserName(params.fromUser),
+    params.fromUser,
     tldr,
     params.text,
     params.entities,

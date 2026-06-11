@@ -29,18 +29,30 @@ export function isLongMessage(text: string): boolean {
   return newlines >= LONG_MESSAGE_LINE_THRESHOLD;
 }
 
-export function formatUserName(user: User | undefined): string {
+export interface Mention {
+  text: string;
+  // Mention entity positioned at offset 0; null when the author is unknown.
+  entity: MessageEntity | null;
+}
+
+export function buildMention(user: User | undefined): Mention {
   if (!user) {
-    return 'Someone';
+    return {text: 'Someone', entity: null};
   }
-  const name = [user.first_name, user.last_name]
-    .filter(Boolean)
-    .join(' ')
-    .trim();
-  if (name) {
-    return name;
+  if (user.username) {
+    const text = `@${user.username}`;
+    return {
+      text,
+      entity: {type: 'mention', offset: 0, length: text.length},
+    };
   }
-  return user.username ?? 'Someone';
+  const name =
+    [user.first_name, user.last_name].filter(Boolean).join(' ').trim() ||
+    'Someone';
+  return {
+    text: name,
+    entity: {type: 'text_mention', offset: 0, length: name.length, user},
+  };
 }
 
 export async function getTldr(
@@ -68,12 +80,13 @@ export async function getTldr(
 }
 
 export function buildRepost(
-  userName: string,
+  user: User | undefined,
   tldr: string,
   originalText: string,
   originalEntities: MessageEntity[] = [],
 ): RepostMessage {
-  const prefix = `${userName} posted a long message; TL;DR: ${tldr}\n`;
+  const mention = buildMention(user);
+  const prefix = `${mention.text} posted a long message; TL;DR: ${tldr}\n`;
   // Entity offsets and lengths are in UTF-16 code units, which is exactly
   // what JavaScript string .length counts.
   const blockquote: MessageEntity = {
@@ -87,6 +100,10 @@ export function buildRepost(
   }));
   return {
     text: prefix + originalText,
-    entities: [blockquote, ...shifted],
+    entities: [
+      ...(mention.entity ? [mention.entity] : []),
+      blockquote,
+      ...shifted,
+    ],
   };
 }

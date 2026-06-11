@@ -1,8 +1,8 @@
 import * as assert from 'assert';
 import {MessageEntity, User} from 'telegraf/typings/core/types/typegram';
 import {
+  buildMention,
   buildRepost,
-  formatUserName,
   getTldr,
   isLongMessage,
   TldrClient,
@@ -42,49 +42,114 @@ describe('isLongMessage', () => {
   });
 });
 
-describe('formatUserName', () => {
-  it('uses first name', () => {
-    assert.strictEqual(formatUserName(makeUser()), 'Alice');
+describe('buildMention', () => {
+  it('uses @username with a mention entity when available', () => {
+    const mention = buildMention(makeUser({username: 'asmith'}));
+    assert.strictEqual(mention.text, '@asmith');
+    assert.deepStrictEqual(mention.entity, {
+      type: 'mention',
+      offset: 0,
+      length: '@asmith'.length,
+    });
   });
 
-  it('uses first and last name when both present', () => {
-    assert.strictEqual(
-      formatUserName(makeUser({last_name: 'Smith'})),
-      'Alice Smith',
-    );
+  it('uses full name with a text_mention entity when no username', () => {
+    const user = makeUser({last_name: 'Smith'});
+    const mention = buildMention(user);
+    assert.strictEqual(mention.text, 'Alice Smith');
+    assert.deepStrictEqual(mention.entity, {
+      type: 'text_mention',
+      offset: 0,
+      length: 'Alice Smith'.length,
+      user,
+    });
   });
 
-  it('falls back to username when names are empty', () => {
-    assert.strictEqual(
-      formatUserName(makeUser({first_name: '', username: 'asmith'})),
-      'asmith',
-    );
+  it('uses first name only when there is no last name', () => {
+    const user = makeUser();
+    const mention = buildMention(user);
+    assert.strictEqual(mention.text, 'Alice');
+    assert.deepStrictEqual(mention.entity, {
+      type: 'text_mention',
+      offset: 0,
+      length: 'Alice'.length,
+      user,
+    });
   });
 
-  it('falls back to "Someone" when nothing is available', () => {
-    assert.strictEqual(formatUserName(makeUser({first_name: ''})), 'Someone');
-    assert.strictEqual(formatUserName(undefined), 'Someone');
+  it('falls back to "Someone" with a text_mention when the name is empty', () => {
+    const user = makeUser({first_name: ''});
+    const mention = buildMention(user);
+    assert.strictEqual(mention.text, 'Someone');
+    assert.deepStrictEqual(mention.entity, {
+      type: 'text_mention',
+      offset: 0,
+      length: 'Someone'.length,
+      user,
+    });
+  });
+
+  it('returns "Someone" without an entity when the user is unknown', () => {
+    assert.deepStrictEqual(buildMention(undefined), {
+      text: 'Someone',
+      entity: null,
+    });
   });
 });
 
 describe('buildRepost', () => {
   const originalText = 'first line\nsecond line';
+  // makeUser() has no username, so the prefix starts with 'Alice'.
+  const prefix = 'Alice posted a long message; TL;DR: a summary\n';
 
   it('prepends the user and TL;DR line to the original text', () => {
-    const repost = buildRepost('Alice', 'a summary', originalText);
+    const repost = buildRepost(makeUser(), 'a summary', originalText);
+    assert.strictEqual(repost.text, prefix + originalText);
+  });
+
+  it('starts with a mention entity for @username users', () => {
+    const repost = buildRepost(
+      makeUser({username: 'asmith'}),
+      'a summary',
+      originalText,
+    );
     assert.strictEqual(
       repost.text,
-      `Alice posted a long message; TL;DR: a summary\n${originalText}`,
+      `@asmith posted a long message; TL;DR: a summary\n${originalText}`,
     );
+    assert.deepStrictEqual(repost.entities[0], {
+      type: 'mention',
+      offset: 0,
+      length: '@asmith'.length,
+    });
+  });
+
+  it('starts with a text_mention entity for users without a username', () => {
+    const user = makeUser();
+    const repost = buildRepost(user, 'a summary', originalText);
+    assert.deepStrictEqual(repost.entities[0], {
+      type: 'text_mention',
+      offset: 0,
+      length: 'Alice'.length,
+      user,
+    });
+  });
+
+  it('omits the mention entity when the user is unknown', () => {
+    const repost = buildRepost(undefined, 'a summary', originalText);
+    assert.strictEqual(
+      repost.text,
+      `Someone posted a long message; TL;DR: a summary\n${originalText}`,
+    );
+    assert.strictEqual(repost.entities.length, 1);
+    assert.strictEqual(repost.entities[0].type, 'expandable_blockquote');
   });
 
   it('wraps the original text in an expandable blockquote entity', () => {
-    const repost = buildRepost('Alice', 'a summary', originalText);
-    const prefixLength = 'Alice posted a long message; TL;DR: a summary\n'
-      .length;
-    assert.deepStrictEqual(repost.entities[0], {
+    const repost = buildRepost(makeUser(), 'a summary', originalText);
+    assert.deepStrictEqual(repost.entities[1], {
       type: 'expandable_blockquote',
-      offset: prefixLength,
+      offset: prefix.length,
       length: originalText.length,
     });
   });
@@ -94,18 +159,16 @@ describe('buildRepost', () => {
       {type: 'bold', offset: 0, length: 5},
       {type: 'italic', offset: 11, length: 6},
     ];
-    const repost = buildRepost('Alice', 'a summary', originalText, entities);
-    const prefixLength = 'Alice posted a long message; TL;DR: a summary\n'
-      .length;
-    assert.deepStrictEqual(repost.entities.slice(1), [
-      {type: 'bold', offset: prefixLength, length: 5},
-      {type: 'italic', offset: prefixLength + 11, length: 6},
+    const repost = buildRepost(makeUser(), 'a summary', originalText, entities);
+    assert.deepStrictEqual(repost.entities.slice(2), [
+      {type: 'bold', offset: prefix.length, length: 5},
+      {type: 'italic', offset: prefix.length + 11, length: 6},
     ]);
   });
 
   it('does not mutate the original entities array', () => {
     const entities: MessageEntity[] = [{type: 'bold', offset: 0, length: 5}];
-    buildRepost('Alice', 'a summary', originalText, entities);
+    buildRepost(makeUser(), 'a summary', originalText, entities);
     assert.deepStrictEqual(entities, [{type: 'bold', offset: 0, length: 5}]);
   });
 
@@ -113,31 +176,31 @@ describe('buildRepost', () => {
     const entities: MessageEntity[] = [
       {type: 'text_link', offset: 0, length: 10, url: 'https://example.com'},
     ];
-    const repost = buildRepost('Alice', 'a summary', originalText, entities);
-    const prefixLength = 'Alice posted a long message; TL;DR: a summary\n'
-      .length;
-    assert.deepStrictEqual(repost.entities[1], {
+    const repost = buildRepost(makeUser(), 'a summary', originalText, entities);
+    assert.deepStrictEqual(repost.entities[2], {
       type: 'text_link',
-      offset: prefixLength,
+      offset: prefix.length,
       length: 10,
       url: 'https://example.com',
     });
   });
 
-  it('produces only the blockquote entity when the original has none', () => {
-    const repost = buildRepost('Alice', 'a summary', originalText);
-    assert.strictEqual(repost.entities.length, 1);
-  });
-
   it('computes offsets in UTF-16 code units for non-BMP characters', () => {
     // '😀' is one code point but two UTF-16 code units.
-    const repost = buildRepost('Алиса 😀', 'итог 🎉', originalText, [
+    const user = makeUser({first_name: 'Алиса 😀'});
+    const repost = buildRepost(user, 'итог 🎉', originalText, [
       {type: 'bold', offset: 0, length: 5},
     ]);
-    const prefix = 'Алиса 😀 posted a long message; TL;DR: итог 🎉\n';
-    assert.strictEqual(repost.text, prefix + originalText);
-    assert.strictEqual(repost.entities[0].offset, prefix.length);
-    assert.strictEqual(repost.entities[1].offset, prefix.length);
+    const emojiPrefix = 'Алиса 😀 posted a long message; TL;DR: итог 🎉\n';
+    assert.strictEqual(repost.text, emojiPrefix + originalText);
+    assert.deepStrictEqual(repost.entities[0], {
+      type: 'text_mention',
+      offset: 0,
+      length: 'Алиса 😀'.length,
+      user,
+    });
+    assert.strictEqual(repost.entities[1].offset, emojiPrefix.length);
+    assert.strictEqual(repost.entities[2].offset, emojiPrefix.length);
   });
 });
 
