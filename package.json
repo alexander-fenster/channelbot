@@ -34,5 +34,8 @@
     "openai": "^4.93.0",
     "string-similarity": "^4.0.4",
     "telegraf": "^4.16.3"
+  },
+  "overrides": {
+    "@telegraf/types": "^9.2.1"
   }
 }

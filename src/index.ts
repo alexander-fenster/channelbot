@@ -6,6 +6,7 @@ import {Telegraf} from 'telegraf';
 import {editedMessage, message} from 'telegraf/filters';
 import {OpenAI} from 'openai';
 import {
+  MessageEntity,
   ReactionType,
   TelegramEmoji,
   User,
@@ -18,6 +19,12 @@ import {
   startTrumpArchiveFetcher,
 } from './truth-verifier';
 import {ContextBuffer} from './context-buffer';
+import {
+  buildRepost,
+  formatUserName,
+  getTldr,
+  isLongMessage,
+} from './long-message';
 
 const moderationThrottlingSeconds = 1;
 const severityThreshold = 9;
@@ -357,6 +364,34 @@ interface ModerationResult {
   }
 }
 
+async function handleLongMessage(params: {
+  chatId: number;
+  topicId: number | null;
+  messageId: number;
+  text: string;
+  entities?: MessageEntity[];
+  fromUser?: User;
+}) {
+  const tldr = await getTldr(deepseek, params.text);
+  const repost = buildRepost(
+    formatUserName(params.fromUser),
+    tldr,
+    params.text,
+    params.entities,
+  );
+  await bot.telegram.sendMessage(params.chatId, repost.text, {
+    entities: repost.entities,
+    ...(params.topicId ? {message_thread_id: params.topicId} : {}),
+  });
+  await bot.telegram.deleteMessage(params.chatId, params.messageId);
+  const where = params.topicId
+    ? `${params.chatId}/${params.topicId}`
+    : `${params.chatId}`;
+  console.log(
+    `[tldr] ${where} msg=${params.messageId} reposted with TL;DR and deleted original`,
+  );
+}
+
 bot.on(message('text'), async ctx => {
   const message = ctx.message;
   const text = message.text;
@@ -394,6 +429,20 @@ bot.on(message('text'), async ctx => {
     fromUser: message.from,
     previousContext,
   });
+  if (ALLOWED_CHAT_IDS.includes(message.chat.id) && isLongMessage(text)) {
+    try {
+      await handleLongMessage({
+        chatId: message.chat.id,
+        topicId,
+        messageId: message.message_id,
+        text,
+        entities: message.entities,
+        fromUser: message.from,
+      });
+    } catch (err) {
+      console.error('[tldr] error handling long message:', err);
+    }
+  }
 });
 
 bot.on(editedMessage('text'), async ctx => {
