@@ -62,6 +62,9 @@ const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 const deepseek = new OpenAI({
   apiKey: DEEPSEEK_API_KEY,
   baseURL: 'https://api.deepseek.com',
+  // Use Node's native fetch (undici) instead of the SDK's bundled node-fetch,
+  // which intermittently throws ERR_STREAM_PREMATURE_CLOSE on gzip responses.
+  fetch: globalThis.fetch,
 });
 const contextBuffer = new ContextBuffer(CONTEXT_SIZE);
 
