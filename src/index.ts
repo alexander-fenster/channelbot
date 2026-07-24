@@ -19,7 +19,12 @@ import {
   startTrumpArchiveFetcher,
 } from './truth-verifier';
 import {ContextBuffer} from './context-buffer';
-import {buildRepost, getTldr, isLongMessage} from './long-message';
+import {
+  buildCaptionRepost,
+  buildRepost,
+  getTldr,
+  isLongMessage,
+} from './long-message';
 
 const moderationThrottlingSeconds = 1;
 const severityThreshold = 9;
@@ -390,6 +395,54 @@ async function handleLongMessage(params: {
   );
 }
 
+// Media messages (photos, videos, documents, ...) carry their text in
+// `caption`, not `text`, so they never reach handleLongMessage. This re-posts
+// the media itself via copyMessage with a short TL;DR caption, keeping the
+// original text collapsed in an expandable blockquote (inline when it fits
+// under the caption limit, otherwise as a follow-up reply), then deletes the
+// original.
+async function handleLongCaption(params: {
+  chatId: number;
+  topicId: number | null;
+  messageId: number;
+  caption: string;
+  captionEntities?: MessageEntity[];
+  fromUser?: User;
+}) {
+  const tldr = await getTldr(deepseek, params.caption);
+  const repost = buildCaptionRepost(
+    params.fromUser,
+    tldr,
+    params.caption,
+    params.captionEntities,
+  );
+  const threadExtra = params.topicId ? {message_thread_id: params.topicId} : {};
+  const copied = await bot.telegram.copyMessage(
+    params.chatId,
+    params.chatId,
+    params.messageId,
+    {
+      caption: repost.caption,
+      caption_entities: repost.captionEntities,
+      ...threadExtra,
+    },
+  );
+  if (repost.followUp) {
+    await bot.telegram.sendMessage(params.chatId, repost.followUp.text, {
+      entities: repost.followUp.entities,
+      reply_parameters: {message_id: copied.message_id},
+      ...threadExtra,
+    });
+  }
+  await bot.telegram.deleteMessage(params.chatId, params.messageId);
+  const where = params.topicId
+    ? `${params.chatId}/${params.topicId}`
+    : `${params.chatId}`;
+  console.log(
+    `[tldr] ${where} msg=${params.messageId} reposted media with TL;DR caption and deleted original`,
+  );
+}
+
 bot.on(message('text'), async ctx => {
   const message = ctx.message;
   const text = message.text;
@@ -484,6 +537,32 @@ bot.on(message('photo'), async ctx => {
     return;
   }
 
+  // A photo with a long caption gets the TL;DR treatment (the re-posted copy
+  // keeps the image). On success the original is gone, so skip OCR below.
+  if (message.caption && isLongMessage(message.caption)) {
+    let topicId: number | null = null;
+    if (
+      'message_thread_id' in message &&
+      message.message_thread_id &&
+      message.is_topic_message
+    ) {
+      topicId = message.message_thread_id;
+    }
+    try {
+      await handleLongCaption({
+        chatId,
+        topicId,
+        messageId,
+        caption: message.caption,
+        captionEntities: message.caption_entities,
+        fromUser: message.from,
+      });
+      return;
+    } catch (err) {
+      console.error('[tldr] error handling long photo caption:', err);
+    }
+  }
+
   // Get the largest photo (last in array)
   const photo = message.photo[message.photo.length - 1];
   const fileId = photo.file_id;
@@ -554,6 +633,48 @@ bot.on(message('photo'), async ctx => {
     await fs.promises.unlink(tempPath).catch(() => {});
   }
 });
+
+// Shared handler for captionable media (photos are handled above alongside
+// OCR). Accepts the structural subset every captionable message shares.
+async function handleCaptionedMedia(msg: {
+  chat: {id: number};
+  message_id: number;
+  message_thread_id?: number;
+  is_topic_message?: boolean;
+  caption?: string;
+  caption_entities?: MessageEntity[];
+  from?: User;
+}) {
+  if (!ALLOWED_CHAT_IDS.includes(msg.chat.id)) {
+    return;
+  }
+  if (!msg.caption || !isLongMessage(msg.caption)) {
+    return;
+  }
+  const topicId =
+    msg.message_thread_id && msg.is_topic_message
+      ? msg.message_thread_id
+      : null;
+  try {
+    await handleLongCaption({
+      chatId: msg.chat.id,
+      topicId,
+      messageId: msg.message_id,
+      caption: msg.caption,
+      captionEntities: msg.caption_entities,
+      fromUser: msg.from,
+    });
+  } catch (err) {
+    console.error('[tldr] error handling long media caption:', err);
+  }
+}
+
+// video_note and stickers have no caption, so they are excluded.
+bot.on(message('document'), ctx => handleCaptionedMedia(ctx.message));
+bot.on(message('video'), ctx => handleCaptionedMedia(ctx.message));
+bot.on(message('animation'), ctx => handleCaptionedMedia(ctx.message));
+bot.on(message('audio'), ctx => handleCaptionedMedia(ctx.message));
+bot.on(message('voice'), ctx => handleCaptionedMedia(ctx.message));
 
 startTrumpArchiveFetcher();
 

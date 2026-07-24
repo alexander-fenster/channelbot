@@ -24,6 +24,10 @@ export interface RepostMessage {
   entities: MessageEntity[];
 }
 
+// Telegram caps media captions at 1024 UTF-16 code units. A repost that would
+// exceed this must move the collapsed original into a follow-up text message.
+export const TELEGRAM_CAPTION_LIMIT = 1024;
+
 export function isLongMessage(text: string): boolean {
   if (text.length > LONG_MESSAGE_CHAR_THRESHOLD) {
     return true;
@@ -110,5 +114,50 @@ export function buildRepost(
       blockquote,
       ...shifted,
     ],
+  };
+}
+
+export interface CaptionRepost {
+  // Caption to set on the re-posted media message.
+  caption: string;
+  captionEntities: MessageEntity[];
+  // When the collapsed original does not fit within the caption limit, it is
+  // carried in this separate text message instead; null when it fit inline.
+  followUp: RepostMessage | null;
+}
+
+// Builds the caption (and optional follow-up) for re-posting a media message
+// whose caption was long. When the "<user> ... TL;DR\n<original>" text fits
+// within the caption limit it mirrors buildRepost exactly (single message).
+// Otherwise the caption carries only the mention + TL;DR, and the full
+// original is returned as a follow-up text message wrapped in an expandable
+// blockquote.
+export function buildCaptionRepost(
+  user: User | undefined,
+  tldr: string,
+  originalCaption: string,
+  originalEntities: MessageEntity[] = [],
+): CaptionRepost {
+  const full = buildRepost(user, tldr, originalCaption, originalEntities);
+  if (full.text.length <= TELEGRAM_CAPTION_LIMIT) {
+    return {caption: full.text, captionEntities: full.entities, followUp: null};
+  }
+  const mention = buildMention(user);
+  const caption = `${mention.text} posted a long message; TL;DR: ${tldr}`;
+  const followUp: RepostMessage = {
+    text: originalCaption,
+    entities: [
+      {
+        type: 'expandable_blockquote',
+        offset: 0,
+        length: originalCaption.length,
+      },
+      ...originalEntities,
+    ],
+  };
+  return {
+    caption,
+    captionEntities: mention.entity ? [mention.entity] : [],
+    followUp,
   };
 }

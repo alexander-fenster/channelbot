@@ -1,10 +1,12 @@
 import * as assert from 'assert';
 import {MessageEntity, User} from 'telegraf/typings/core/types/typegram';
 import {
+  buildCaptionRepost,
   buildMention,
   buildRepost,
   getTldr,
   isLongMessage,
+  TELEGRAM_CAPTION_LIMIT,
   TldrClient,
 } from '../src/long-message';
 
@@ -209,6 +211,86 @@ describe('buildRepost', () => {
     });
     assert.strictEqual(repost.entities[1].offset, emojiPrefix.length);
     assert.strictEqual(repost.entities[2].offset, emojiPrefix.length);
+  });
+});
+
+describe('buildCaptionRepost', () => {
+  it('mirrors buildRepost in a single caption when it fits the limit', () => {
+    const originalCaption = 'first line\nsecond line';
+    const repost = buildCaptionRepost(makeUser(), 'a summary', originalCaption);
+    const asText = buildRepost(makeUser(), 'a summary', originalCaption);
+    assert.strictEqual(repost.caption, asText.text);
+    assert.deepStrictEqual(repost.captionEntities, asText.entities);
+    assert.strictEqual(repost.followUp, null);
+  });
+
+  it('preserves original caption entities in the inline caption', () => {
+    const entities: MessageEntity[] = [
+      {type: 'text_link', offset: 0, length: 5, url: 'https://example.com'},
+    ];
+    const repost = buildCaptionRepost(
+      makeUser(),
+      'a summary',
+      'hello world',
+      entities,
+    );
+    assert.strictEqual(repost.followUp, null);
+    // mention entity, then blockquote, then the shifted text_link.
+    const link = repost.captionEntities[2];
+    assert.strictEqual(link.type, 'text_link');
+    assert.strictEqual((link as {url: string}).url, 'https://example.com');
+  });
+
+  it('splits into a short caption plus follow-up when over the limit', () => {
+    const originalCaption = 'x'.repeat(TELEGRAM_CAPTION_LIMIT);
+    const repost = buildCaptionRepost(
+      makeUser({username: 'asmith'}),
+      'a summary',
+      originalCaption,
+    );
+    assert.strictEqual(
+      repost.caption,
+      '@asmith posted a long message; TL;DR: a summary',
+    );
+    assert.deepStrictEqual(repost.captionEntities, [
+      {type: 'mention', offset: 0, length: '@asmith'.length},
+    ]);
+    assert.ok(repost.caption.length <= TELEGRAM_CAPTION_LIMIT);
+    assert.ok(repost.followUp);
+    assert.strictEqual(repost.followUp!.text, originalCaption);
+    assert.deepStrictEqual(repost.followUp!.entities[0], {
+      type: 'expandable_blockquote',
+      offset: 0,
+      length: originalCaption.length,
+    });
+  });
+
+  it('shifts original entities into the follow-up blockquote unchanged', () => {
+    const originalCaption = 'y'.repeat(TELEGRAM_CAPTION_LIMIT);
+    const entities: MessageEntity[] = [{type: 'bold', offset: 3, length: 4}];
+    const repost = buildCaptionRepost(
+      makeUser(),
+      'a summary',
+      originalCaption,
+      entities,
+    );
+    assert.ok(repost.followUp);
+    // Follow-up is the bare original, so entity offsets are not shifted.
+    assert.deepStrictEqual(repost.followUp!.entities[1], {
+      type: 'bold',
+      offset: 3,
+      length: 4,
+    });
+  });
+
+  it('omits the mention entity in the split caption for unknown users', () => {
+    const originalCaption = 'z'.repeat(TELEGRAM_CAPTION_LIMIT);
+    const repost = buildCaptionRepost(undefined, 'a summary', originalCaption);
+    assert.strictEqual(
+      repost.caption,
+      'Someone posted a long message; TL;DR: a summary',
+    );
+    assert.deepStrictEqual(repost.captionEntities, []);
   });
 });
 
