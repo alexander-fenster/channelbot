@@ -226,7 +226,7 @@ interface ModerationResult {
   const authorLabel = labelFor(request.fromUser?.id ?? null);
 
   const moderationResponse = await deepseek.chat.completions.create({
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     messages: [
       {role: 'system', content: systemPrompt},
       {

@@ -327,11 +327,11 @@ describe('getTldr', () => {
     );
   });
 
-  it('sends the message text to the deepseek-chat model', async () => {
+  it('sends the message text to the deepseek-v4-flash model', async () => {
     const {client, requests} = makeClient('summary');
     await getTldr(client, 'the long message text');
     assert.strictEqual(requests.length, 1);
-    assert.strictEqual(requests[0].model, 'deepseek-chat');
+    assert.strictEqual(requests[0].model, 'deepseek-v4-flash');
     const userMessages = requests[0].messages.filter(m => m.role === 'user');
     assert.deepStrictEqual(
       userMessages.map(m => m.content),

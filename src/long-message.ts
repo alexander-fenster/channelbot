@@ -69,7 +69,7 @@ export async function getTldr(
   text: string,
 ): Promise<string> {
   const response = await client.chat.completions.create({
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     messages: [
       {
         role: 'system',
