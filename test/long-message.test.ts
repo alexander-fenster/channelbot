@@ -2,10 +2,13 @@ import * as assert from 'assert';
 import {MessageEntity, User} from 'telegraf/typings/core/types/typegram';
 import {
   buildCaptionRepost,
+  buildForwardSource,
   buildMention,
   buildRepost,
+  ForwardSource,
   getTldr,
   isLongMessage,
+  MessageOrigin,
   TELEGRAM_CAPTION_LIMIT,
   TldrClient,
 } from '../src/long-message';
@@ -291,6 +294,199 @@ describe('buildCaptionRepost', () => {
       'Someone posted a long message; TL;DR: a summary',
     );
     assert.deepStrictEqual(repost.captionEntities, []);
+  });
+});
+
+describe('buildForwardSource', () => {
+  it('returns null when there is no forward origin', () => {
+    assert.strictEqual(buildForwardSource(undefined), null);
+  });
+
+  it('links a public channel post by username and message id', () => {
+    const origin: MessageOrigin = {
+      type: 'channel',
+      date: 0,
+      message_id: 55,
+      chat: {
+        id: -1001234567890,
+        type: 'channel',
+        title: 'My Channel',
+        username: 'mychannel',
+      },
+    };
+    assert.deepStrictEqual(buildForwardSource(origin), {
+      name: 'My Channel',
+      url: 'https://t.me/mychannel/55',
+    });
+  });
+
+  it('links a private channel post via the /c/<shortId> form', () => {
+    const origin: MessageOrigin = {
+      type: 'channel',
+      date: 0,
+      message_id: 7,
+      chat: {id: -1001234567890, type: 'channel', title: 'Secret'},
+    };
+    assert.deepStrictEqual(buildForwardSource(origin), {
+      name: 'Secret',
+      url: 'https://t.me/c/1234567890/7',
+    });
+  });
+
+  it('links a chat sender by username when available', () => {
+    const origin: MessageOrigin = {
+      type: 'chat',
+      date: 0,
+      sender_chat: {
+        id: -100987,
+        type: 'supergroup',
+        title: 'Group',
+        username: 'grp',
+      },
+    };
+    assert.deepStrictEqual(buildForwardSource(origin), {
+      name: 'Group',
+      url: 'https://t.me/grp',
+    });
+  });
+
+  it('leaves a private chat sender unlinked', () => {
+    const origin: MessageOrigin = {
+      type: 'chat',
+      date: 0,
+      sender_chat: {id: -100987, type: 'supergroup', title: 'Group'},
+    };
+    assert.deepStrictEqual(buildForwardSource(origin), {
+      name: 'Group',
+      url: null,
+    });
+  });
+
+  it('links a known user by username, using their full name', () => {
+    const origin: MessageOrigin = {
+      type: 'user',
+      date: 0,
+      sender_user: {
+        id: 9,
+        is_bot: false,
+        first_name: 'Bob',
+        last_name: 'Jones',
+        username: 'bobj',
+      },
+    };
+    assert.deepStrictEqual(buildForwardSource(origin), {
+      name: 'Bob Jones',
+      url: 'https://t.me/bobj',
+    });
+  });
+
+  it('leaves a known user without a username unlinked', () => {
+    const origin: MessageOrigin = {
+      type: 'user',
+      date: 0,
+      sender_user: {id: 9, is_bot: false, first_name: 'Bob'},
+    };
+    assert.deepStrictEqual(buildForwardSource(origin), {
+      name: 'Bob',
+      url: null,
+    });
+  });
+
+  it('names a hidden user without a link', () => {
+    const origin: MessageOrigin = {
+      type: 'hidden_user',
+      date: 0,
+      sender_user_name: 'Anonymous',
+    };
+    assert.deepStrictEqual(buildForwardSource(origin), {
+      name: 'Anonymous',
+      url: null,
+    });
+  });
+});
+
+describe('buildRepost with a forward source', () => {
+  const originalText = 'first line\nsecond line';
+  const source: ForwardSource = {
+    name: 'My Channel',
+    url: 'https://t.me/mychannel/55',
+  };
+
+  it('uses "forwarded ... from <source>" wording and a source link entity', () => {
+    const repost = buildRepost(
+      makeUser({username: 'asmith'}),
+      'a summary',
+      originalText,
+      [],
+      source,
+    );
+    const prefix =
+      '@asmith forwarded a long message from My Channel; TL;DR: a summary\n';
+    assert.strictEqual(repost.text, prefix + originalText);
+    // mention, then source text_link, then blockquote.
+    assert.deepStrictEqual(repost.entities[0], {
+      type: 'mention',
+      offset: 0,
+      length: '@asmith'.length,
+    });
+    assert.deepStrictEqual(repost.entities[1], {
+      type: 'text_link',
+      offset: '@asmith forwarded a long message from '.length,
+      length: 'My Channel'.length,
+      url: 'https://t.me/mychannel/55',
+    });
+    assert.deepStrictEqual(repost.entities[2], {
+      type: 'expandable_blockquote',
+      offset: prefix.length,
+      length: originalText.length,
+    });
+  });
+
+  it('omits the source link entity when the source has no url', () => {
+    const repost = buildRepost(makeUser(), 'a summary', originalText, [], {
+      name: 'Anonymous',
+      url: null,
+    });
+    const prefix =
+      'Alice forwarded a long message from Anonymous; TL;DR: a summary\n';
+    assert.strictEqual(repost.text, prefix + originalText);
+    // text_mention only, then blockquote — no text_link in between.
+    assert.strictEqual(repost.entities[0].type, 'text_mention');
+    assert.strictEqual(repost.entities[1].type, 'expandable_blockquote');
+  });
+});
+
+describe('buildCaptionRepost with a forward source', () => {
+  const source: ForwardSource = {
+    name: 'My Channel',
+    url: 'https://t.me/mychannel/55',
+  };
+
+  it('carries the source link in the split short caption', () => {
+    const originalCaption = 'x'.repeat(TELEGRAM_CAPTION_LIMIT);
+    const repost = buildCaptionRepost(
+      makeUser({username: 'asmith'}),
+      'a summary',
+      originalCaption,
+      [],
+      source,
+    );
+    assert.strictEqual(
+      repost.caption,
+      '@asmith forwarded a long message from My Channel; TL;DR: a summary',
+    );
+    assert.deepStrictEqual(repost.captionEntities[0], {
+      type: 'mention',
+      offset: 0,
+      length: '@asmith'.length,
+    });
+    assert.deepStrictEqual(repost.captionEntities[1], {
+      type: 'text_link',
+      offset: '@asmith forwarded a long message from '.length,
+      length: 'My Channel'.length,
+      url: 'https://t.me/mychannel/55',
+    });
+    assert.ok(repost.followUp);
   });
 });
 

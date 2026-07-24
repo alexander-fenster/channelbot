@@ -21,9 +21,12 @@ import {
 import {ContextBuffer} from './context-buffer';
 import {
   buildCaptionRepost,
+  buildForwardSource,
   buildRepost,
+  ForwardSource,
   getTldr,
   isLongMessage,
+  MessageOrigin,
 } from './long-message';
 
 const moderationThrottlingSeconds = 1;
@@ -374,6 +377,7 @@ async function handleLongMessage(params: {
   text: string;
   entities?: MessageEntity[];
   fromUser?: User;
+  forwardSource?: ForwardSource | null;
 }) {
   const tldr = await getTldr(deepseek, params.text);
   const repost = buildRepost(
@@ -381,9 +385,13 @@ async function handleLongMessage(params: {
     tldr,
     params.text,
     params.entities,
+    params.forwardSource,
   );
   await bot.telegram.sendMessage(params.chatId, repost.text, {
     entities: repost.entities,
+    // Suppress the preview for the source link (and any link in the collapsed
+    // original) so the repost stays compact.
+    link_preview_options: {is_disabled: true},
     ...(params.topicId ? {message_thread_id: params.topicId} : {}),
   });
   await bot.telegram.deleteMessage(params.chatId, params.messageId);
@@ -408,6 +416,7 @@ async function handleLongCaption(params: {
   caption: string;
   captionEntities?: MessageEntity[];
   fromUser?: User;
+  forwardSource?: ForwardSource | null;
 }) {
   const tldr = await getTldr(deepseek, params.caption);
   const repost = buildCaptionRepost(
@@ -415,6 +424,7 @@ async function handleLongCaption(params: {
     tldr,
     params.caption,
     params.captionEntities,
+    params.forwardSource,
   );
   const threadExtra = params.topicId ? {message_thread_id: params.topicId} : {};
   const copied = await bot.telegram.copyMessage(
@@ -430,6 +440,7 @@ async function handleLongCaption(params: {
   if (repost.followUp) {
     await bot.telegram.sendMessage(params.chatId, repost.followUp.text, {
       entities: repost.followUp.entities,
+      link_preview_options: {is_disabled: true},
       reply_parameters: {message_id: copied.message_id},
       ...threadExtra,
     });
@@ -489,6 +500,7 @@ bot.on(message('text'), async ctx => {
         text,
         entities: message.entities,
         fromUser: message.from,
+        forwardSource: buildForwardSource(message.forward_origin),
       });
     } catch (err) {
       console.error('[tldr] error handling long message:', err);
@@ -556,6 +568,7 @@ bot.on(message('photo'), async ctx => {
         caption: message.caption,
         captionEntities: message.caption_entities,
         fromUser: message.from,
+        forwardSource: buildForwardSource(message.forward_origin),
       });
       return;
     } catch (err) {
@@ -644,6 +657,7 @@ async function handleCaptionedMedia(msg: {
   caption?: string;
   caption_entities?: MessageEntity[];
   from?: User;
+  forward_origin?: MessageOrigin;
 }) {
   if (!ALLOWED_CHAT_IDS.includes(msg.chat.id)) {
     return;
@@ -663,6 +677,7 @@ async function handleCaptionedMedia(msg: {
       caption: msg.caption,
       captionEntities: msg.caption_entities,
       fromUser: msg.from,
+      forwardSource: buildForwardSource(msg.forward_origin),
     });
   } catch (err) {
     console.error('[tldr] error handling long media caption:', err);

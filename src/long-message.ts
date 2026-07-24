@@ -1,4 +1,20 @@
-import {MessageEntity, User} from 'telegraf/typings/core/types/typegram';
+import {
+  Chat,
+  MessageEntity,
+  MessageOriginChannel,
+  MessageOriginChat,
+  MessageOriginHiddenUser,
+  MessageOriginUser,
+  User,
+} from 'telegraf/typings/core/types/typegram';
+
+// telegraf re-exports the individual origin interfaces but not the union
+// itself, so we reconstruct it here.
+export type MessageOrigin =
+  | MessageOriginUser
+  | MessageOriginHiddenUser
+  | MessageOriginChat
+  | MessageOriginChannel;
 
 // A message is "long" when it spans more than this many lines...
 export const LONG_MESSAGE_LINE_THRESHOLD = 10;
@@ -64,6 +80,95 @@ export function buildMention(user: User | undefined): Mention {
   };
 }
 
+export interface ForwardSource {
+  // Display name for the source (channel/chat title or user name).
+  name: string;
+  // Permalink to the original post, or null when none can be built (private
+  // sources without a public username, or hidden senders).
+  url: string | null;
+}
+
+function channelPermalink(chat: Chat, messageId: number): string {
+  if ('username' in chat && chat.username) {
+    return `https://t.me/${chat.username}/${messageId}`;
+  }
+  // Private channels/supergroups are reachable via the internal /c/<shortId>
+  // form, dropping the -100 supergroup prefix from the numeric id.
+  const shortId = chat.id.toString().replace(/^-100/, '');
+  return `https://t.me/c/${shortId}/${messageId}`;
+}
+
+// Derives the source of a forwarded message from its forward_origin: a display
+// name and (when possible) a permalink. Returns null for non-forwarded
+// messages so callers fall back to the plain "posted a long message" wording.
+export function buildForwardSource(
+  origin: MessageOrigin | undefined,
+): ForwardSource | null {
+  if (!origin) {
+    return null;
+  }
+  switch (origin.type) {
+    case 'channel':
+      return {
+        name: 'title' in origin.chat ? origin.chat.title : 'a channel',
+        url: channelPermalink(origin.chat, origin.message_id),
+      };
+    case 'chat': {
+      const chat = origin.sender_chat;
+      const name = 'title' in chat ? chat.title : 'a chat';
+      const url =
+        'username' in chat && chat.username
+          ? `https://t.me/${chat.username}`
+          : null;
+      return {name, url};
+    }
+    case 'user': {
+      const u = origin.sender_user;
+      const name =
+        [u.first_name, u.last_name].filter(Boolean).join(' ').trim() ||
+        'a user';
+      const url = u.username ? `https://t.me/${u.username}` : null;
+      return {name, url};
+    }
+    case 'hidden_user':
+      return {name: origin.sender_user_name, url: null};
+    default:
+      return null;
+  }
+}
+
+// Builds the "<mention> posted/forwarded ...; TL;DR: <tldr>" header line
+// (without a trailing newline) plus its entities: the author mention and, for
+// forwards, a text_link to the source pointing at `source.url`.
+function buildHeader(
+  user: User | undefined,
+  tldr: string,
+  source: ForwardSource | null,
+): {text: string; entities: MessageEntity[]} {
+  const mention = buildMention(user);
+  const entities: MessageEntity[] = [];
+  if (mention.entity) {
+    entities.push(mention.entity);
+  }
+  let text = mention.text;
+  if (source) {
+    text += ' forwarded a long message from ';
+    if (source.url) {
+      entities.push({
+        type: 'text_link',
+        offset: text.length,
+        length: source.name.length,
+        url: source.url,
+      });
+    }
+    text += source.name;
+  } else {
+    text += ' posted a long message';
+  }
+  text += `; TL;DR: ${tldr}`;
+  return {text, entities};
+}
+
 export async function getTldr(
   client: TldrClient,
   text: string,
@@ -93,9 +198,10 @@ export function buildRepost(
   tldr: string,
   originalText: string,
   originalEntities: MessageEntity[] = [],
+  source: ForwardSource | null = null,
 ): RepostMessage {
-  const mention = buildMention(user);
-  const prefix = `${mention.text} posted a long message; TL;DR: ${tldr}\n`;
+  const header = buildHeader(user, tldr, source);
+  const prefix = `${header.text}\n`;
   // Entity offsets and lengths are in UTF-16 code units, which is exactly
   // what JavaScript string .length counts.
   const blockquote: MessageEntity = {
@@ -109,11 +215,7 @@ export function buildRepost(
   }));
   return {
     text: prefix + originalText,
-    entities: [
-      ...(mention.entity ? [mention.entity] : []),
-      blockquote,
-      ...shifted,
-    ],
+    entities: [...header.entities, blockquote, ...shifted],
   };
 }
 
@@ -137,13 +239,19 @@ export function buildCaptionRepost(
   tldr: string,
   originalCaption: string,
   originalEntities: MessageEntity[] = [],
+  source: ForwardSource | null = null,
 ): CaptionRepost {
-  const full = buildRepost(user, tldr, originalCaption, originalEntities);
+  const full = buildRepost(
+    user,
+    tldr,
+    originalCaption,
+    originalEntities,
+    source,
+  );
   if (full.text.length <= TELEGRAM_CAPTION_LIMIT) {
     return {caption: full.text, captionEntities: full.entities, followUp: null};
   }
-  const mention = buildMention(user);
-  const caption = `${mention.text} posted a long message; TL;DR: ${tldr}`;
+  const header = buildHeader(user, tldr, source);
   const followUp: RepostMessage = {
     text: originalCaption,
     entities: [
@@ -156,8 +264,8 @@ export function buildCaptionRepost(
     ],
   };
   return {
-    caption,
-    captionEntities: mention.entity ? [mention.entity] : [],
+    caption: header.text,
+    captionEntities: header.entities,
     followUp,
   };
 }
