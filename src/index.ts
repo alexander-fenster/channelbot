@@ -22,7 +22,7 @@ import {ContextBuffer} from './context-buffer';
 import {
   buildCaptionRepost,
   buildForwardSource,
-  buildRepost,
+  buildTextRepost,
   ForwardSource,
   getTldr,
   isLongMessage,
@@ -380,20 +380,26 @@ async function handleLongMessage(params: {
   forwardSource?: ForwardSource | null;
 }) {
   const tldr = await getTldr(deepseek, params.text);
-  const repost = buildRepost(
+  const reposts = buildTextRepost(
     params.fromUser,
     tldr,
     params.text,
     params.entities,
     params.forwardSource,
   );
-  await bot.telegram.sendMessage(params.chatId, repost.text, {
-    entities: repost.entities,
-    // Suppress the preview for the source link (and any link in the collapsed
-    // original) so the repost stays compact.
-    link_preview_options: {is_disabled: true},
-    ...(params.topicId ? {message_thread_id: params.topicId} : {}),
-  });
+  let headerMessageId: number | undefined;
+  for (const repost of reposts) {
+    const sent = await bot.telegram.sendMessage(params.chatId, repost.text, {
+      entities: repost.entities,
+      // Suppress previews for links in the header and collapsed original.
+      link_preview_options: {is_disabled: true},
+      ...(params.topicId ? {message_thread_id: params.topicId} : {}),
+      ...(headerMessageId
+        ? {reply_parameters: {message_id: headerMessageId}}
+        : {}),
+    });
+    headerMessageId ??= sent.message_id;
+  }
   await bot.telegram.deleteMessage(params.chatId, params.messageId);
   const where = params.topicId
     ? `${params.chatId}/${params.topicId}`

@@ -5,11 +5,13 @@ import {
   buildForwardSource,
   buildMention,
   buildRepost,
+  buildTextRepost,
   ForwardSource,
   getTldr,
   isLongMessage,
   MessageOrigin,
   TELEGRAM_CAPTION_LIMIT,
+  TELEGRAM_MESSAGE_LIMIT,
   TldrClient,
 } from '../src/long-message';
 
@@ -217,7 +219,102 @@ describe('buildRepost', () => {
   });
 });
 
+describe('buildTextRepost', () => {
+  const user = makeUser({username: 'asmith'});
+  const source = {name: 'Channel', url: 'https://t.me/channel/55'};
+  const header =
+    '@asmith forwarded a long message from Channel; TL;DR: summary';
+
+  it('keeps a repost at exactly the limit in one message', () => {
+    const original = 'x'.repeat(TELEGRAM_MESSAGE_LIMIT - header.length - 1);
+    const messages = buildTextRepost(user, 'summary', original, [], source);
+    assert.strictEqual(messages.length, 1);
+    assert.strictEqual(messages[0].text.length, TELEGRAM_MESSAGE_LIMIT);
+  });
+
+  it('splits one character over the limit and preserves attribution and entities', () => {
+    const original = 'x'.repeat(TELEGRAM_MESSAGE_LIMIT - header.length);
+    const entities: MessageEntity[] = [
+      {type: 'text_link', offset: 10, length: 20, url: 'https://example.com'},
+    ];
+    const messages = buildTextRepost(
+      user,
+      'summary',
+      original,
+      entities,
+      source,
+    );
+    assert.strictEqual(messages.length, 2);
+    assert.strictEqual(messages[0].text, header);
+    assert.strictEqual(messages[0].entities[0].type, 'mention');
+    assert.strictEqual(messages[0].entities[1].type, 'text_link');
+    assert.strictEqual(messages[1].text, original);
+    assert.deepStrictEqual(messages[1].entities, [
+      {type: 'expandable_blockquote', offset: 0, length: original.length},
+      ...entities,
+    ]);
+  });
+
+  it('preserves a full-length original', () => {
+    const original = 'x'.repeat(TELEGRAM_MESSAGE_LIMIT);
+    const messages = buildTextRepost(user, 'summary', original);
+    assert.strictEqual(messages.length, 2);
+    assert.strictEqual(messages[1].text, original);
+  });
+
+  it('splits large originals without breaking emoji or losing spanning formatting', () => {
+    const original = 'x'.repeat(4095) + '😀rest';
+    const entities: MessageEntity[] = [
+      {type: 'bold', offset: 4090, length: 11},
+    ];
+    const messages = buildTextRepost(user, 'summary', original, entities);
+    assert.strictEqual(messages.length, 3);
+    assert.strictEqual(messages[2].text, '😀rest');
+    assert.strictEqual(
+      messages
+        .slice(1)
+        .map(m => m.text)
+        .join(''),
+      original,
+    );
+    assert.deepStrictEqual(messages[1].entities[1], {
+      type: 'bold',
+      offset: 4090,
+      length: 5,
+    });
+    assert.deepStrictEqual(messages[2].entities[1], {
+      type: 'bold',
+      offset: 0,
+      length: 6,
+    });
+    assert.deepStrictEqual(entities, [
+      {type: 'bold', offset: 4090, length: 11},
+    ]);
+  });
+
+  it('bounds unexpectedly long summaries without breaking emoji', () => {
+    const prefix = '@asmith posted a long message; TL;DR: ';
+    const summary = 'x'.repeat(4094 - prefix.length) + '😀more';
+    const messages = buildTextRepost(user, summary, 'original');
+    assert.strictEqual(
+      messages[0].text,
+      prefix + 'x'.repeat(4094 - prefix.length) + '…',
+    );
+    assert.strictEqual(messages[1].text, 'original');
+    for (const message of messages) {
+      assert.ok(message.text.length <= TELEGRAM_MESSAGE_LIMIT);
+    }
+  });
+});
+
 describe('buildCaptionRepost', () => {
+  it('bounds an unexpectedly long TL;DR caption', () => {
+    const repost = buildCaptionRepost(makeUser(), 'x'.repeat(5000), 'original');
+    assert.strictEqual(repost.caption.length, TELEGRAM_CAPTION_LIMIT);
+    assert.ok(repost.caption.endsWith('…'));
+    assert.strictEqual(repost.followUp!.text, 'original');
+  });
+
   it('mirrors buildRepost in a single caption when it fits the limit', () => {
     const originalCaption = 'first line\nsecond line';
     const repost = buildCaptionRepost(makeUser(), 'a summary', originalCaption);

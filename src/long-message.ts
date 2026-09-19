@@ -43,6 +43,8 @@ export interface RepostMessage {
 // Telegram caps media captions at 1024 UTF-16 code units. A repost that would
 // exceed this must move the collapsed original into a follow-up text message.
 export const TELEGRAM_CAPTION_LIMIT = 1024;
+// Use UTF-16 lengths conservatively so entity offsets share the same units.
+export const TELEGRAM_MESSAGE_LIMIT = 4096;
 
 export function isLongMessage(text: string): boolean {
   if (text.length > LONG_MESSAGE_CHAR_THRESHOLD) {
@@ -144,6 +146,7 @@ function buildHeader(
   user: User | undefined,
   tldr: string,
   source: ForwardSource | null,
+  limit = TELEGRAM_MESSAGE_LIMIT,
 ): {text: string; entities: MessageEntity[]} {
   const mention = buildMention(user);
   const entities: MessageEntity[] = [];
@@ -166,6 +169,16 @@ function buildHeader(
     text += ' posted a long message';
   }
   text += `; TL;DR: ${tldr}`;
+  if (text.length > limit) {
+    let end = limit - 1;
+    // Never cut an emoji's surrogate pair in half.
+    if (/[\uD800-\uDBFF]/.test(text[end - 1])) end--;
+    text = text.slice(0, end) + '…';
+    return {
+      text,
+      entities: entities.filter(entity => entity.offset + entity.length <= end),
+    };
+  }
   return {text, entities};
 }
 
@@ -219,6 +232,46 @@ export function buildRepost(
   };
 }
 
+// Keep the original intact in a follow-up when adding the header would exceed
+// the limit. Very large originals are split without losing text or formatting.
+export function buildTextRepost(
+  user: User | undefined,
+  tldr: string,
+  originalText: string,
+  originalEntities: MessageEntity[] = [],
+  source: ForwardSource | null = null,
+): RepostMessage[] {
+  const full = buildRepost(user, tldr, originalText, originalEntities, source);
+  if (full.text.length <= TELEGRAM_MESSAGE_LIMIT) return [full];
+
+  const messages: RepostMessage[] = [buildHeader(user, tldr, source)];
+  for (let start = 0; start < originalText.length; ) {
+    let end = Math.min(start + TELEGRAM_MESSAGE_LIMIT, originalText.length);
+    if (
+      end < originalText.length &&
+      /[\uD800-\uDBFF]/.test(originalText[end - 1])
+    ) {
+      end--;
+    }
+    const entities = originalEntities.flatMap(entity => {
+      const from = Math.max(start, entity.offset);
+      const to = Math.min(end, entity.offset + entity.length);
+      return from < to
+        ? [{...entity, offset: from - start, length: to - from}]
+        : [];
+    });
+    messages.push({
+      text: originalText.slice(start, end),
+      entities: [
+        {type: 'expandable_blockquote', offset: 0, length: end - start},
+        ...entities,
+      ],
+    });
+    start = end;
+  }
+  return messages;
+}
+
 export interface CaptionRepost {
   // Caption to set on the re-posted media message.
   caption: string;
@@ -251,7 +304,7 @@ export function buildCaptionRepost(
   if (full.text.length <= TELEGRAM_CAPTION_LIMIT) {
     return {caption: full.text, captionEntities: full.entities, followUp: null};
   }
-  const header = buildHeader(user, tldr, source);
+  const header = buildHeader(user, tldr, source, TELEGRAM_CAPTION_LIMIT);
   const followUp: RepostMessage = {
     text: originalCaption,
     entities: [
